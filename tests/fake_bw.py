@@ -85,6 +85,8 @@ def main(args: list[str]) -> None:
         fail('Vault is locked.')
     elif args[:2] == ['list', 'items']:
         print(json.dumps(state['items']))
+    elif args[:2] == ['list', 'folders']:
+        print(json.dumps(state.get('folders', [])))
     elif command == 'sync':
         print('Syncing complete.')
     else:

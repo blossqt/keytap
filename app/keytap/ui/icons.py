@@ -17,6 +17,25 @@ _SHAPES = {
     'search': '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
     'star': '<path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.3L12 16l-4.9 2.6 1.1-5.3-4-3.7 5.4-.6z" fill="{c}"/>',
     'key': '<circle cx="8" cy="12" r="3.5"/><path d="M11.5 12H20M17 12v3M20 12v2.5"/>',
+    'copy': '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
+    'eye': '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/>'
+           '<circle cx="12" cy="12" r="3"/>',
+    'eye_off': '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/>'
+               '<circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/>',
+    'refresh': '<path d="M19.5 10.5A7.5 7.5 0 0 0 6 7.2L4.5 9M4.5 4.5V9H9"/>'
+               '<path d="M4.5 13.5A7.5 7.5 0 0 0 18 16.8l1.5-1.8M19.5 19.5V15H15"/>',
+    'sliders': '<path d="M4 7h9M18 7h2M4 17h3M12 17h8"/><circle cx="15.5" cy="7" r="2.3"/>'
+               '<circle cx="9.5" cy="17" r="2.3"/>',
+    'external': '<path d="M14 4h6v6M20 4l-8.5 8.5"/>'
+                '<path d="M18.5 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7.5a2 2 0 0 1 2-2h4"/>',
+    'folder': '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+    'grid': '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/>'
+            '<rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+    'clock': '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/>',
+    'star_line': '<path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.3L12 16l-4.9 2.6 1.1-5.3-4-3.7 5.4-.6z"/>',
+    'globe': '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.6 3.6 5.4 3.6 8.5s-1.2 5.9-3.6 '
+             '8.5c-2.4-2.6-3.6-5.4-3.6-8.5s1.2-5.9 3.6-8.5z"/>',
+    'window': '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9h17"/>',
 }
 
 _cache: dict = {}

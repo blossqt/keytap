@@ -49,6 +49,9 @@ class Login:
     fields: tuple[tuple[str, str], ...] = field(default=(), repr=False)
     reprompt: bool = False
     favorite: bool = False
+    notes: str = field(default='', repr=False)
+    folder_id: str = ''
+    hidden: frozenset[str] = frozenset()     # the custom fields Bitwarden keeps hidden
 
     @property
     def sequence(self) -> str:
@@ -76,12 +79,14 @@ class Login:
         login = item.get('login') or {}
         uris = tuple(str(u.get('uri')) for u in (login.get('uris') or []) if u and u.get('uri'))
         # Text (0) and hidden (1) custom fields; booleans and linked fields have no text to type.
-        fields = tuple((str(f.get('name') or ''), str(f.get('value') or ''))
-                       for f in (item.get('fields') or []) if f and f.get('type') in (0, 1))
+        kept = [f for f in (item.get('fields') or []) if f and f.get('type') in (0, 1)]
+        fields = tuple((str(f.get('name') or ''), str(f.get('value') or '')) for f in kept)
         return cls(id=str(item.get('id') or ''), name=str(item.get('name') or '(no name)'),
                    username=str(login.get('username') or ''), password=str(login.get('password') or ''),
                    totp=str(login.get('totp') or ''), uris=uris, fields=fields,
-                   reprompt=item.get('reprompt') == 1, favorite=bool(item.get('favorite')))
+                   reprompt=item.get('reprompt') == 1, favorite=bool(item.get('favorite')),
+                   notes=str(item.get('notes') or ''), folder_id=str(item.get('folderId') or ''),
+                   hidden=frozenset(str(f.get('name') or '') for f in kept if f.get('type') == 1))
 
 
 @dataclass(frozen=True)
@@ -255,6 +260,13 @@ class Bitwarden:
         items = _json_from(self._run('list', 'items'), '[')
         logins = [Login.from_item(item) for item in items if isinstance(item, dict)]
         return [login for login in logins if login is not None]
+
+    def folders(self) -> dict[str, str]:
+        """Folder names by id. Logins outside any folder have none."""
+        if not self._session:
+            raise VaultError('The vault is locked')
+        found = _json_from(self._run('list', 'folders'), '[')
+        return {str(f['id']): str(f.get('name') or '') for f in found if isinstance(f, dict) and f.get('id')}
 
     def sync(self) -> None:
         self._run('sync')

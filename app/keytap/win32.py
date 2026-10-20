@@ -328,11 +328,12 @@ _RUN_NAME = 'Keytap'
 
 
 def launch_command() -> str:
+    """How Windows starts Keytap at sign-in: --startup, so it stays in the background."""
     if getattr(sys, 'frozen', False):
-        return f'"{sys.executable}"'
+        return f'"{sys.executable}" --startup'
     pythonw = Path(sys.executable).with_name('pythonw.exe')
     main = Path(__file__).resolve().parents[1] / 'main.py'
-    return f'"{pythonw}" "{main}"'
+    return f'"{pythonw}" "{main}" --startup'
 
 
 def starts_with_windows() -> bool:
@@ -342,6 +343,20 @@ def starts_with_windows() -> bool:
             return True
     except OSError:
         return False
+
+
+def refresh_start_with_windows() -> None:
+    """Keep the sign-in entry pointing at this copy, as it starts now - an entry made by an
+    older Keytap, without --startup, would open the vault window at every sign-in."""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+            current, _ = winreg.QueryValueEx(key, _RUN_NAME)
+    except OSError:
+        return
+    # Only this copy's own entry: one pointing at another copy of Keytap is left be.
+    mine = f'"{sys.executable}"'.lower()
+    if getattr(sys, 'frozen', False) and current.lower().startswith(mine) and current != launch_command():
+        set_start_with_windows(True)
 
 
 def set_start_with_windows(enabled: bool) -> None:

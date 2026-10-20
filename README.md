@@ -37,6 +37,34 @@ history and cleared after 30 seconds). Tick **Always use this login in…**
 After typing a login that has an authenticator key, Keytap copies its current
 verification code, ready to paste on the next screen, as Bitwarden does.
 
+## The vault window
+
+Open Keytap from Start, from Hanami, or from the tray's **Open Keytap**, and it
+shows your vault the way Bitwarden's apps do:
+
+- **Filters** on the left: all logins, favourites, those with a verification
+  code, and your folders.
+- **Logins** in the middle, with a search box (Ctrl+F). It searches names,
+  usernames and websites.
+- **The chosen login** on the right:
+  - its username, its password (hidden until you click the eye) and its
+    verification code, counting down;
+  - its websites and programs, custom fields and notes;
+  - a button to copy each part. **Ctrl+U**, **Ctrl+P** and **Ctrl+T** copy the
+    username, password and code.
+
+Copies are kept out of Windows' clipboard history and cleared after 30 seconds.
+A login set to ask for your master password again shows nothing until you
+give it. **Ctrl+L** locks and **Ctrl+R** syncs.
+
+Keytap only reads your vault. **Edit in Bitwarden** opens the login in
+Bitwarden's web vault, where changes are made.
+
+While the vault is locked, the window shows the lock screen. Locking, whether
+by hand, when idle or with Windows, clears every login off it.
+
+Started with Windows, Keytap stays in the background until you open it.
+
 ## The pop-up in login boxes
 
 Like Bitwarden's extension in a browser, Keytap lists your logins under a

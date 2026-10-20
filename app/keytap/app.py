@@ -2,7 +2,8 @@
 
 Pressing the hotkey notes which window was in front, unlocks the vault if
 needed, works out which login goes with that window (asking if unsure), and
-types it there.
+types it there. Opening Keytap itself shows the vault (ui/vault_window.py);
+started with Windows (--startup) it stays quietly in the background.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from PySide6.QtCore import QByteArray, QMimeData, QObject, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -32,6 +34,7 @@ from .ui.inline import InlineMenu
 from .ui.picker import Picker
 from .ui.toast import ToastStack
 from .ui.unlock import UnlockCard
+from .ui.vault_window import VaultWindow, sample_controller
 
 # Tests run a second copy beside a real one under a name of their own.
 SERVER_NAME = os.environ.get('KEYTAP_INSTANCE') or f'keytap-{os.environ.get("USERNAME", "user")}'
@@ -53,13 +56,14 @@ def _verifier(password: str, salt: bytes | None = None) -> tuple[bytes, bytes]:
 
 
 class Controller(QObject):
-    def __init__(self):
+    def __init__(self, startup: bool = False):
         super().__init__()
         self.settings = Settings()
         self.vault = Bitwarden()
         self.status = Status('missing' if not self.vault.available else 'checking')
         self.cli_version = ''
         self.logins: list[Login] | None = None
+        self.folders: dict[str, str] = {}
         self.hotkey_problems: dict[str, str] = {}
         self.card = None               # the picker or unlock card on screen, if any
         self.typing = False
@@ -106,6 +110,11 @@ class Controller(QObject):
             self._update_tray()
             self.toasts.show("Bitwarden's command-line tool is missing",
                              'Reinstall Keytap - it comes with it.', error=True)
+        win32.refresh_start_with_windows()
+        # Opened by hand: the vault. Started with Windows, or the very first time
+        # (when the welcome comes up instead): just the tray and the hotkeys.
+        if not startup and not DEV and self.settings.welcomed:
+            QTimer.singleShot(0, self.show_vault)
 
     # ------------------------------------------------------------------ account state
 
@@ -124,6 +133,7 @@ class Controller(QObject):
             status = Status('unlocked', status.email, status.server, status.last_sync)
         self.status = status
         self._update_tray()
+        self._refresh_vault()
         if first and not self.settings.welcomed and not DEV:
             self.settings.welcomed = True
             self.show_welcome()
@@ -135,6 +145,7 @@ class Controller(QObject):
         s = self.status
         self.status = Status(state, s.email, s.server, s.last_sync)
         self._update_tray()
+        self._refresh_vault()
         if state not in ('locked', 'unlocked'):
             self._hide_inline()
 
@@ -317,10 +328,15 @@ class Controller(QObject):
             elif pending:
                 action, window = pending
                 QTimer.singleShot(0, lambda: self._choose(action, window))
-            else:
+            elif not getattr(card, 'quiet', False):
                 self.toasts.show('Keytap is unlocked',
                                  f'Press {self.settings.hotkeys["type"]} in any program to type a login.')
         background.run(work, done)
+
+    def unlock_in(self, page, password: str) -> None:
+        """Unlock from the vault window's own lock screen."""
+        self._pending = None
+        self._unlock(page, password)
 
     def _unlocked(self, logins: list[Login], check) -> None:
         self.logins = logins
@@ -328,6 +344,17 @@ class Controller(QObject):
         self._set_state('unlocked')
         self._syncer.start()
         self.sync(quiet=True)
+
+    def _load_folders(self) -> None:
+        def done(folders, error):
+            if error is None and self.unlocked:
+                self.folders = folders
+                self._refresh_vault()
+        background.run(self.vault.folders, done)
+
+    def confirm(self, login: Login, then, near_hwnd: int | None = None) -> None:
+        """Ask for the master password again for a login that wants it, then go on."""
+        self._confirm(login, then, SimpleNamespace(hwnd=near_hwnd) if near_hwnd else None)
 
     def _confirm(self, login: Login, then, window) -> None:
         if self.card is not None:
@@ -356,6 +383,7 @@ class Controller(QObject):
             return
         session = self.vault.take_session()
         self.logins = None
+        self.folders = {}
         self._check = None
         self._pending = None
         self._syncer.stop()
@@ -379,9 +407,13 @@ class Controller(QObject):
             if error is not None:
                 if not quiet:
                     self.toasts.show('Could not sync', f'{error} - using the copy on this PC.', error=True)
+                if self.unlocked and not self.folders:
+                    self._load_folders()       # from the copy on this PC, then
                 return
             if self.unlocked:
                 self.logins = logins
+                self._refresh_vault()
+                self._load_folders()
                 if not quiet:
                     self.toasts.show('Synced', f'{len(logins)} logins in your vault.')
         background.run(work, done)
@@ -546,6 +578,21 @@ class Controller(QObject):
             return False
         return True
 
+    def show_vault(self) -> None:
+        """Keytap's own window: the vault, or its lock screen."""
+        if self._bring_back('vault'):
+            self._refresh_vault()
+            return
+        self._keep('vault', VaultWindow(self))
+
+    def _refresh_vault(self) -> None:
+        window = self._windows.get('vault')
+        if window is not None:
+            try:
+                window.refresh()
+            except RuntimeError:            # closed and deleted a moment ago
+                self._windows.pop('vault', None)
+
     def show_settings(self) -> None:
         if self._bring_back('settings'):
             return
@@ -583,12 +630,13 @@ class Controller(QObject):
         words = {'missing': "Bitwarden's tool is missing", 'checking': 'Starting…',
                  'unauthenticated': 'Not signed in', 'locked': 'Locked',
                  'unlocked': f'Unlocked - press {key} to type' if key else 'Unlocked'}
-        items = [{'text': words.get(state, state.capitalize()), 'enabled': False}, {'separator': True}]
+        items = [{'text': words.get(state, state.capitalize()), 'enabled': False}, {'separator': True},
+                 {'id': 'open', 'text': 'Open Keytap', 'default': True}]
         if state == 'unauthenticated':
-            items.append({'id': 'signin', 'text': 'Sign in to Bitwarden…', 'default': True})
+            items.append({'id': 'signin', 'text': 'Sign in to Bitwarden…'})
         else:
             items.append({'id': 'lock', 'text': 'Lock' if self.unlocked else 'Unlock…',
-                          'enabled': state in ('locked', 'unlocked'), 'default': state == 'locked'})
+                          'enabled': state in ('locked', 'unlocked')})
             items.append({'id': 'sync', 'text': 'Sync now', 'enabled': self.unlocked})
         items += [{'id': 'inline', 'text': 'Pop up in login boxes', 'checkable': True,
                    'checked': self.settings.inline},
@@ -606,7 +654,8 @@ class Controller(QObject):
             self.show_unlock(None)
 
     def _tray_clicked(self, item: str) -> None:
-        actions = {'signin': self.show_sign_in, 'lock': self._lock_or_unlock, 'sync': self.sync,
+        actions = {'open': self.show_vault, 'signin': self.show_sign_in, 'lock': self._lock_or_unlock,
+                   'sync': self.sync,
                    'inline': lambda: self._toggle_inline(not self.settings.inline),
                    'welcome': self.show_welcome, 'settings': self.show_settings, 'quit': self.quit}
         if item in actions:
@@ -650,8 +699,10 @@ class Controller(QObject):
     def command(self, message: str) -> str:
         words = message.split()
         if not words or words[0] == 'show':
-            # Opening Keytap again - the way back in when it is out of the tray.
-            self.show_settings()
+            # Opening Keytap again - from Start, Hanami, or its exe.
+            self.show_vault()
+        elif words[0] == 'startup':
+            pass                            # started with Windows, while already running: nothing to show
         elif words[0] == 'quit':
             QTimer.singleShot(0, self.quit)
         elif words[0] == 'lock':
@@ -664,15 +715,32 @@ class Controller(QObject):
                                'toasts': self.toasts.titles(), 'links': self.settings.links,
                                'hotkey_problems': self.hotkey_problems, 'inline': self.inline.describe(),
                                'field': self.field.kind if self.field else '',
-                               'watching': self.fields.running, 'watch_error': self.fields.failed})
+                               'watching': self.fields.running, 'watch_error': self.fields.failed,
+                               'vault_window': self._vault_window_state()})
         elif DEV and words[0] == 'inline-point' and len(words) > 1:
             x, y = self.inline.row_point(int(words[1]))
             return f'{x} {y}'
+        elif DEV and words[0] == 'window-unlock' and len(words) > 1 and 'vault' in self._windows:
+            # Tests: the master password, as if typed into the vault window's lock screen.
+            self._windows['vault'].lock_page.submitted.emit(message.split(' ', 1)[1])
         elif DEV and words[0] == 'reload':
             self.settings = Settings()
             self.apply_hotkeys()
             self.apply_inline()
         return ''
+
+
+    def _vault_window_state(self) -> dict:
+        window = self._windows.get('vault')
+        try:
+            if window is None or not window.isVisible():
+                return {'visible': False}
+            page = {window.vault_page: 'vault', window.lock_page: 'locked'}.get(window.pages.currentWidget(), 'notice')
+            return {'visible': True, 'page': page, 'listed': window.list.count(),
+                    'filters': window.filters.count(), 'shown': window.details.login.name
+                    if window.details.login is not None else ''}
+        except RuntimeError:
+            return {'visible': False}
 
 
 def send(message: str, reply: bool = False) -> str | None:
@@ -715,6 +783,7 @@ def self_test(argv: list[str]) -> int:
         UnlockCard('Unlock Keytap').adjustSize()
         Hotkeys()
         InlineMenu().grab()            # painted, never shown
+        VaultWindow(sample_controller(sample)).grab()
         problem = focus.probe()
         if problem:
             raise RuntimeError(f'UI Automation: {problem}')
@@ -751,7 +820,8 @@ def main(argv: list[str] | None = None) -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(icons.app_icon())
 
-    message = argv[argv.index('--send') + 1] if '--send' in argv and len(argv) > argv.index('--send') + 1 else 'show'
+    message = argv[argv.index('--send') + 1] if '--send' in argv and len(argv) > argv.index('--send') + 1 else \
+        'startup' if '--startup' in argv else 'show'
     answer = send(message, reply='--send' in argv)
     if answer is not None:
         if answer:
@@ -761,6 +831,6 @@ def main(argv: list[str] | None = None) -> int:
         print('Keytap is not running', file=sys.stderr)
         return 1
 
-    controller = Controller()  # noqa: F841 - lives as long as the app
+    controller = Controller(startup='--startup' in argv)  # noqa: F841 - lives as long as the app
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())
     return app.exec()
