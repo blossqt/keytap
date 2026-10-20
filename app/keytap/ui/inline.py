@@ -19,7 +19,7 @@ HEADER = 30
 ROW = 42
 FOOTER = 28
 MIN_WIDTH, MAX_WIDTH = 290, 380
-MAX_LOGINS = 4
+MAX_LOGINS = 6
 _TAGS = {LINKED: 'Always', URI: 'Matches'}
 
 
@@ -51,8 +51,11 @@ class InlineMenu(QWidget):
         else:
             self._rows = [('login', login, login.name, login.username or 'no username', _TAGS.get(strength, ''))
                           for login, strength in matches[:MAX_LOGINS]]
+            more = len(matches) - MAX_LOGINS
+            detail = (f'and {more} more for {program}' if more > 0 else
+                      '' if matches else f'nothing saved for {program} yet')
             self._rows.append(('search', None, 'Search your vault…' if matches else 'Choose a login…',
-                               '' if matches else f'nothing saved for {program} yet', ''))
+                               detail, ''))
         self._hover = None
 
         left, top, right, bottom = field.rect

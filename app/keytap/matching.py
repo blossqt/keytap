@@ -1,15 +1,21 @@
 """Which logins belong to the window being typed into.
 
-A login is tied to a program in one of three ways, strongest first:
+A login is tied to a program in one of these ways, strongest first:
 - remembered: chosen in Keytap's picker with "Always use" ticked (kept on
   this PC, never written to the vault);
 - a URI on the login in Bitwarden: app://steam.exe for a program (a full
   path works too), or title://Sign in to Steam for a window whose title
   contains that text (* and ? as wildcards);
+- the same website: saved for the website of a login tied the first or second
+  way - another account there. Steam's sign-in window is steamwebhelper.exe
+  and its logins are saved for steampowered.com, so remembering one of them
+  brings in the rest;
 - a hint: the login's name, or its website's name, appears in the window's
-  title or is the program's name. Hints are only ever suggestions in the
-  picker - typing a password into the wrong window can send it somewhere
-  it should never go, so Keytap types straight away only for the first two.
+  title or is the program's name.
+
+The last two are only ever suggestions - typing a password into the wrong
+window can send it somewhere it should never go, so Keytap types straight
+away only for the first two.
 """
 
 from __future__ import annotations
@@ -20,8 +26,14 @@ from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from urllib.parse import urlparse
 
-LINKED, URI, HINT = 'linked', 'uri', 'hint'
-_ORDER = {LINKED: 0, URI: 1, HINT: 2}
+LINKED, URI, SITE, HINT = 'linked', 'uri', 'site', 'hint'
+_ORDER = {LINKED: 0, URI: 1, SITE: 2, HINT: 3}
+
+# Websites that are one account under several names, as Bitwarden's own
+# equivalent domains have them.
+_SAME_SITES = (
+    frozenset({'steampowered.com', 'steamcommunity.com', 'steamgames.com'}),
+)
 
 # Browsers have Bitwarden's own extension for this; Keytap's pop-up stays out of them.
 BROWSERS = {
@@ -116,6 +128,40 @@ def _site_name(uri: str) -> str:
     return labels[-1] if len(labels) == 1 else labels[-2] if len(labels[-1]) <= 3 else labels[-1]
 
 
+def site_of(uri: str) -> str:
+    """'steampowered.com' for https://store.steampowered.com/login - the website a URI is
+    on, without its subdomains - or '' for a program, a window title or no website at all."""
+    text = uri.strip()
+    lower = text.lower()
+    if lower.startswith(('app:', 'exe:', 'title:', 'window:')) or (
+            '://' in lower and not lower.startswith(('http://', 'https://'))):
+        return ''
+    if '://' not in lower and ('.' not in lower or lower.endswith('.exe')):
+        return ''
+    try:
+        host = (urlparse(text if '://' in text else f'https://{text}').hostname or '').strip('.')
+    except ValueError:
+        return ''
+    if '.' not in host:
+        return ''
+    if host.replace('.', '').isdigit():
+        return host
+    labels = host.split('.')
+    # example.co.uk, example.com.au: the country's own second level counts as the ending.
+    keep = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and len(labels[-2]) <= 3 else 2
+    return '.'.join(labels[-keep:])
+
+
+def _sites(login) -> set[str]:
+    """The websites a login is saved for, each with the names it also goes by."""
+    found = set()
+    for uri in login.uris:
+        site = site_of(uri)
+        if site:
+            found |= next((group for group in _SAME_SITES if site in group), {site})
+    return found
+
+
 def hints_at(login, window) -> bool:
     title = window.title.lower()
     stem = PureWindowsPath(window.exe).stem.lower() if window.exe else ''
@@ -135,14 +181,23 @@ def hints_at(login, window) -> bool:
 def find(window, logins, links: dict[str, str]) -> list[Match]:
     """The logins that go with this window, strongest first."""
     linked_id = links.get(link_key(window))
-    found = []
+    strength = {}
     for login in logins:
         if linked_id and login.id == linked_id:
-            found.append(Match(login, LINKED))
+            strength[login.id] = LINKED
         elif any(uri_matches(uri, window) for uri in login.uris):
-            found.append(Match(login, URI))
-        elif hints_at(login, window):
-            found.append(Match(login, HINT))
+            strength[login.id] = URI
+    # Other accounts on the websites of the logins tied to this program.
+    sites = set().union(*(_sites(login) for login in logins if login.id in strength))
+    found = []
+    for login in logins:
+        if login.id not in strength:
+            if sites and _sites(login) & sites:
+                strength[login.id] = SITE
+            elif hints_at(login, window):
+                strength[login.id] = HINT
+        if login.id in strength:
+            found.append(Match(login, strength[login.id]))
     found.sort(key=lambda m: (_ORDER[m.strength], not m.login.favorite, m.login.name.lower()))
     return found
 

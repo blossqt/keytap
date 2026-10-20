@@ -139,6 +139,29 @@ class MatchingTests(unittest.TestCase):
         # Hints alone never type by themselves.
         self.assertIsNone(matching.sure_choice(matching.find(w, [b], {})))
 
+    def test_same_site_as_the_remembered_login(self):
+        # Steam's sign-in is steamwebhelper.exe; its logins are saved for its websites.
+        w = window('steamwebhelper.exe', 'Sign in to Steam')
+        mine = Login('v', 'store.steampowered.com', 'viridaria', 'x', uris=('https://store.steampowered.com',))
+        alt = Login('o', 'store.steampowered.com', 'alt', 'y', uris=('https://store.steampowered.com/login',))
+        community = Login('c', 'Steam Community', 'third', 'z', uris=('https://steamcommunity.com',))
+        unrelated = Login('u', 'GitHub', 'me', 'q', uris=('https://github.com',))
+        logins = [unrelated, community, alt, mine]
+        found = matching.find(w, logins, {'steamwebhelper.exe': 'v'})
+        self.assertEqual([(m.login.id, m.strength) for m in found], [('v', 'linked'), ('c', 'site'), ('o', 'site')])
+        self.assertIs(matching.sure_choice(found), mine, 'the remembered one is still typed straight away')
+        # Nothing remembered and no app:// URI: nothing to say which site, so no site matches.
+        self.assertEqual(matching.find(w, logins, {}), [])
+
+    def test_site_of(self):
+        self.assertEqual(matching.site_of('https://store.steampowered.com/login'), 'steampowered.com')
+        self.assertEqual(matching.site_of('steamcommunity.com'), 'steamcommunity.com')
+        self.assertEqual(matching.site_of('https://login.example.co.uk/x'), 'example.co.uk')
+        self.assertEqual(matching.site_of('http://192.168.1.1:8080'), '192.168.1.1')
+        for not_a_site in ('app://steam.exe', 'steam.exe', 'title://Sign in.', 'androidapp://com.valvesoftware',
+                           'localhost', ''):
+            self.assertEqual(matching.site_of(not_a_site), '', not_a_site)
+
     def test_site_hint_in_browser(self):
         w = window('chrome.exe', 'Sign in to GitHub · GitHub - Google Chrome')
         g = Login('g', 'Work account', 'me', 'x', uris=('https://github.com/login',))
