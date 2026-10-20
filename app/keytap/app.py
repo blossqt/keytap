@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import QByteArray, QMimeData, QObject, Qt, QTimer
+from PySide6.QtCore import QObject, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
@@ -34,7 +34,7 @@ from .ui.inline import InlineMenu
 from .ui.picker import Picker
 from .ui.toast import ToastStack
 from .ui.unlock import UnlockCard
-from .ui.vault_window import VaultWindow, sample_controller
+from .ui.vault_window import VaultWindow, private_mime, sample_controller
 
 # Tests run a second copy beside a real one under a name of their own.
 SERVER_NAME = os.environ.get('KEYTAP_INSTANCE') or f'keytap-{os.environ.get("USERNAME", "user")}'
@@ -201,23 +201,27 @@ class Controller(QObject):
             self._choose(action, window)
 
     def _choose(self, action: str, window) -> None:
-        matches = matching.find(window, self.logins, self.settings.links)
+        # In a login box on a web page (an app's built-in browser, say), the page's website decides.
+        field = self.fields.current(window)
+        page = field.page if field is not None and matching.site_of(field.page) else ''
+        matches = matching.find(window, self.logins, self.settings.links, page)
         if action == 'type':
             login = matching.sure_choice(matches)
             if login is not None:
                 self.use(login, 'all', window)
                 return
-        shared = window.exe in matching.SHARED_PROGRAMS
-        remember = (f'Always use this login in {matching.describe(window)}' if not shared or window.title.strip()
+        where = matching.describe(window, page)
+        shared = window.exe in matching.SHARED_PROGRAMS and not page
+        remember = (f'Always use this login {"on" if page else "in"} {where}' if not shared or window.title.strip()
                     else '')
-        picker = Picker(self.logins, matches, matching.describe(window), remember)
-        picker.chosen.connect(lambda login, what, keep: self._picked(window, login, what, keep))
+        picker = Picker(self.logins, matches, where, remember)
+        picker.chosen.connect(lambda login, what, keep: self._picked(window, login, what, keep, page))
         self._show_card(picker, window.hwnd)
 
-    def _picked(self, window, login: Login, what: str, remember: bool) -> None:
+    def _picked(self, window, login: Login, what: str, remember: bool, page: str = '') -> None:
         if remember:
             links = self.settings.links
-            links[matching.link_key(window)] = login.id
+            links[matching.link_key(window, page)] = login.id
             self.settings.links = links
         self.use(login, what, window)
 
@@ -290,7 +294,9 @@ class Controller(QObject):
         if self.card is not None:
             self.card.bring_back()
             return
-        detail = f'to fill {matching.describe(window)}' if window else self.status.email
+        field = self.fields.current(window) if window else None
+        detail = (f'to fill {matching.describe(window, field.page if field else "")}' if window
+                  else self.status.email)
         card = UnlockCard('Unlock Keytap', detail)
         card.submitted.connect(lambda password: self._unlock(card, password))
         card.closed.connect(lambda: self._unlock_closed(card))
@@ -467,10 +473,12 @@ class Controller(QObject):
             return
         self._dismissed = None
         matches = None
+        page = field.page if matching.site_of(field.page) else ''
         if self.unlocked:
             matches = [(m.login, m.strength)
-                       for m in matching.find(field.window, self.logins, self.settings.links)]
-        self.inline.present(field, matches, field.window.exe or 'this program')
+                       for m in matching.find(field.window, self.logins, self.settings.links, page)]
+        program = field.window.exe or 'this program'
+        self.inline.present(field, matches, matching.site_of(page) or program, program)
         self._inline_rect = win32.window_rect(field.window.hwnd)
         self._inline_watch.start()
         self.hotkeys.take_escape(True)
@@ -531,14 +539,7 @@ class Controller(QObject):
     # ------------------------------------------------------------------ clipboard
 
     def copy(self, text: str, label: str, quiet: bool = False) -> None:
-        mime = QMimeData()
-        mime.setText(text)
-        # Keep secrets out of Windows' clipboard history and cloud clipboard.
-        for name, value in (('ExcludeClipboardContentFromMonitorProcessing', b'\x01\x00\x00\x00'),
-                            ('CanIncludeInClipboardHistory', b'\x00\x00\x00\x00'),
-                            ('CanUploadToCloudClipboard', b'\x00\x00\x00\x00')):
-            mime.setData(f'application/x-qt-windows-mime;value="{name}"', QByteArray(value))
-        QGuiApplication.clipboard().setMimeData(mime)
+        QGuiApplication.clipboard().setMimeData(private_mime(text))
         self._copied = text
         self._clipboard.start()
         if not quiet:

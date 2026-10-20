@@ -6,16 +6,22 @@ A login is tied to a program in one of these ways, strongest first:
 - a URI on the login in Bitwarden: app://steam.exe for a program (a full
   path works too), or title://Sign in to Steam for a window whose title
   contains that text (* and ? as wildcards);
+- the web page: for a box on a web page inside a program (an app's built-in
+  browser, or an app made of web pages, like Discord), saved for that page's
+  website, as Bitwarden's extension matches logins in a browser;
 - the same website: saved for the website of a login tied the first or second
   way - another account there. Steam's sign-in window is steamwebhelper.exe
   and its logins are saved for steampowered.com, so remembering one of them
   brings in the rest;
 - a hint: the login's name, or its website's name, appears in the window's
-  title or is the program's name.
+  title or is the program's name - or, on a web page, is the website's name.
+
+On a web page, a choice is remembered for that website rather than for the
+program, which can show any website at all.
 
 The last two are only ever suggestions - typing a password into the wrong
 window can send it somewhere it should never go, so Keytap types straight
-away only for the first two.
+away only for the first three.
 """
 
 from __future__ import annotations
@@ -26,8 +32,8 @@ from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from urllib.parse import urlparse
 
-LINKED, URI, SITE, HINT = 'linked', 'uri', 'site', 'hint'
-_ORDER = {LINKED: 0, URI: 1, SITE: 2, HINT: 3}
+LINKED, URI, PAGE, SITE, HINT = 'linked', 'uri', 'page', 'site', 'hint'
+_ORDER = {LINKED: 0, URI: 1, PAGE: 2, SITE: 3, HINT: 4}
 
 # Websites that are one account under several names, as Bitwarden's own
 # equivalent domains have them.
@@ -61,15 +67,21 @@ class Match:
     strength: str
 
 
-def link_key(window) -> str:
-    """What a remembered choice is filed under for this window."""
+def link_key(window, page: str = '') -> str:
+    """What a remembered choice is filed under for this window, or for the web page in it."""
+    site = site_of(page) if page else ''
+    if site:
+        return f'{window.exe}|site:{site}'
     if window.exe in SHARED_PROGRAMS or not window.exe:
         return f'{window.exe}|{window.title.strip()}'
     return window.exe
 
 
-def describe(window) -> str:
-    """'steam.exe', or for a browser and the like, its window's title."""
+def describe(window, page: str = '') -> str:
+    """'steam.exe'; for a browser and the like, its window's title; on a web page, its website."""
+    site = site_of(page) if page else ''
+    if site:
+        return site
     if window.exe in SHARED_PROGRAMS or not window.exe:
         title = window.title.strip() or 'this window'
         return f'“{title}”'
@@ -152,17 +164,31 @@ def site_of(uri: str) -> str:
     return '.'.join(labels[-keep:])
 
 
+def _also(site: str) -> set[str]:
+    """A website with the names it also goes by."""
+    return set(next((group for group in _SAME_SITES if site in group), {site}))
+
+
 def _sites(login) -> set[str]:
     """The websites a login is saved for, each with the names it also goes by."""
     found = set()
     for uri in login.uris:
         site = site_of(uri)
         if site:
-            found |= next((group for group in _SAME_SITES if site in group), {site})
+            found |= _also(site)
     return found
 
 
-def hints_at(login, window) -> bool:
+def _is_web(uri: str) -> bool:
+    return uri.lower().startswith(('http://', 'https://')) or ('.' in uri and '://' not in uri)
+
+
+def hints_at(login, window, page: str = '') -> bool:
+    if page:
+        # On a web page the program says nothing: it could be showing any website.
+        name = _site_name(page)
+        return len(name) >= 4 and (_word_in(name, login.name.lower()) or any(
+            _site_name(uri) == name for uri in login.uris if _is_web(uri)))
     title = window.title.lower()
     stem = PureWindowsPath(window.exe).stem.lower() if window.exe else ''
     name = login.name.strip().lower()
@@ -171,22 +197,26 @@ def hints_at(login, window) -> bool:
     if len(stem) >= 4 and _word_in(stem, name):     # "Steam (alt)" for steam.exe
         return True
     for uri in login.uris:
-        if uri.lower().startswith(('http://', 'https://')) or ('.' in uri and '://' not in uri):
+        if _is_web(uri):
             site = _site_name(uri)
             if len(site) >= 4 and (site == stem or _word_in(site, title)):
                 return True
     return False
 
 
-def find(window, logins, links: dict[str, str]) -> list[Match]:
-    """The logins that go with this window, strongest first."""
-    linked_id = links.get(link_key(window))
+def find(window, logins, links: dict[str, str], page: str = '') -> list[Match]:
+    """The logins that go with this window - or with the web page in it, for a box on one -
+    strongest first."""
+    linked_id = links.get(link_key(window, page))
+    on_page = _also(site_of(page)) if page and site_of(page) else set()
     strength = {}
     for login in logins:
         if linked_id and login.id == linked_id:
             strength[login.id] = LINKED
         elif any(uri_matches(uri, window) for uri in login.uris):
             strength[login.id] = URI
+        elif on_page and _sites(login) & on_page:
+            strength[login.id] = PAGE
     # Other accounts on the websites of the logins tied to this program.
     sites = set().union(*(_sites(login) for login in logins if login.id in strength))
     found = []
@@ -194,7 +224,7 @@ def find(window, logins, links: dict[str, str]) -> list[Match]:
         if login.id not in strength:
             if sites and _sites(login) & sites:
                 strength[login.id] = SITE
-            elif hints_at(login, window):
+            elif hints_at(login, window, page):
                 strength[login.id] = HINT
         if login.id in strength:
             found.append(Match(login, strength[login.id]))
@@ -204,10 +234,8 @@ def find(window, logins, links: dict[str, str]) -> list[Match]:
 
 def sure_choice(matches: list[Match]):
     """The one login to type without asking, if there is exactly one sure one."""
-    linked = [m.login for m in matches if m.strength == LINKED]
-    if len(linked) == 1:
-        return linked[0]
-    tied = [m.login for m in matches if m.strength == URI]
-    if not linked and len(tied) == 1:
-        return tied[0]
+    for strength in (LINKED, URI, PAGE):
+        logins = [m.login for m in matches if m.strength == strength]
+        if logins:
+            return logins[0] if len(logins) == 1 else None
     return None

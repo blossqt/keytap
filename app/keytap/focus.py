@@ -11,6 +11,11 @@ Two layers, so programs Keytap has no business with are never disturbed:
    apps switch on their accessibility support, which costs them a little;
    browsers are never asked.
 
+A box on a web page inside a program - an app's built-in browser, or an app
+made of web pages, like Discord - also says which page: Chromium gives each
+page's document its address as its value. Keytap then goes by that website,
+as Bitwarden's extension would in a browser.
+
 The UI Automation calls run on a thread of their own (COM's multithreaded
 apartment), since another program can take its time answering.
 """
@@ -37,6 +42,8 @@ WINEVENT_SKIPOWNPROCESS = 0x0002
 
 UIA_CONTROL_TYPE_PROPERTY = 30003
 UIA_IS_PASSWORD_PROPERTY = 30019
+UIA_FRAMEWORK_ID_PROPERTY = 30024
+UIA_VALUE_PATTERN = 10002
 UIA_EDIT = 50004
 UIA_DOCUMENT, UIA_PANE, UIA_CUSTOM, UIA_GROUP = 50030, 50033, 50025, 50026
 TREE_SCOPE_DESCENDANTS = 4
@@ -59,6 +66,7 @@ class LoginField:
     kind: str                           # 'password' or 'username'
     rect: tuple[int, int, int, int]     # the box, in physical screen pixels
     key: tuple                          # UI Automation's id for the box, to know it again
+    page: str = ''                      # the address of the web page it is on, if it is on one
 
 
 def _automation():
@@ -92,6 +100,31 @@ def _automation():
     except Exception:  # noqa: BLE001 - older Windows: default timeouts
         pass
     return automation, automation.CreatePropertyCondition(UIA_IS_PASSWORD_PROPERTY, True)
+
+
+def page_address(automation, element) -> str:
+    """The address of the web page a box is on, or '' if it is not on one.
+
+    Only Chromium's pages count (Chrome, Edge, Electron, WebView2, CEF): their
+    documents' value is the page's address. Another program's document - a
+    rich text box, say - has its text as its value instead. A page that will
+    not say counts as none: the box is still offered, by its program."""
+    try:
+        pages = automation.CreateAndCondition(
+            automation.CreatePropertyCondition(UIA_CONTROL_TYPE_PROPERTY, UIA_DOCUMENT),
+            automation.CreatePropertyCondition(UIA_FRAMEWORK_ID_PROPERTY, 'Chrome'))
+        # The nearest page around the box: for a box in a frame, the frame's own page.
+        page = automation.CreateTreeWalker(pages).GetParentElement(element)
+        if not page or page.CurrentProcessId != element.CurrentProcessId:     # comtypes: NULL is falsy
+            return ''
+        from comtypes.gen import UIAutomationClient as uia
+        pattern = page.GetCurrentPattern(UIA_VALUE_PATTERN)
+        if not pattern:
+            return ''
+        address = str(pattern.QueryInterface(uia.IUIAutomationValuePattern).CurrentValue or '').strip()
+    except Exception:  # noqa: BLE001 - the program went away, or would not answer
+        return ''
+    return address if address.lower().startswith(('https://', 'http://')) else ''
 
 
 def probe() -> str:
@@ -131,6 +164,8 @@ class FieldWatcher(QObject):
         self._settle = QTimer(self, singleShot=True, interval=80)
         self._settle.timeout.connect(self._ask)
         self._thread: threading.Thread | None = None
+        self._last: LoginField | None = None       # the latest answer, while nothing has moved since
+        self._answered = -1
         self.failed = ''
 
     # ------------------------------------------------------------------ on and off
@@ -153,11 +188,20 @@ class FieldWatcher(QObject):
         self._hooks.clear()
         self._generation += 1
         self._target = None
+        self._last = None
         self.field.emit(None)
 
     @property
     def running(self) -> bool:
         return bool(self._hooks)
+
+    def current(self, window) -> LoginField | None:
+        """The login box in this window that has the keyboard, if Keytap knows of one and the
+        keyboard has not moved since it last looked: a hotkey goes by its web page."""
+        field = self._last
+        if field is None or self._answered != self._generation or field.window.hwnd != window.hwnd:
+            return None
+        return field
 
     def recheck(self) -> None:
         """Look at whatever has the keyboard now (after unlocking, say)."""
@@ -173,6 +217,7 @@ class FieldWatcher(QObject):
             self._generation += 1
             if window is None or window.pid == 0 or window.is_shell or not self._wanted(window):
                 self._target = None
+                self._last = None
                 self._settle.stop()
                 self.field.emit(None)
                 return
@@ -187,6 +232,7 @@ class FieldWatcher(QObject):
 
     def _found(self, generation: int, field) -> None:
         if generation == self._generation and self._hooks:
+            self._last, self._answered = field, generation
             self.field.emit(field)
 
     # ------------------------------------------------------------------ UI Automation (its own thread)
@@ -231,7 +277,7 @@ class FieldWatcher(QObject):
             return None, False
         key = tuple(element.GetRuntimeId() or ())
         if element.CurrentIsPassword:
-            return LoginField(window, 'password', box, key), False
+            return LoginField(window, 'password', box, key, page_address(automation, element)), False
         words = f'{element.CurrentName} {element.CurrentAutomationId}'.lower()
         if any(word in words for word in _NOT_LOGIN_WORDS):
             return None, False
@@ -242,5 +288,5 @@ class FieldWatcher(QObject):
             if node is None or node.CurrentProcessId != window.pid:
                 break
             if node.FindFirst(TREE_SCOPE_DESCENDANTS, password_box):
-                return LoginField(window, 'username', box, key), False
+                return LoginField(window, 'username', box, key, page_address(automation, element)), False
         return None, False

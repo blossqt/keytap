@@ -11,9 +11,11 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# Windows' own fonts: offscreen Qt otherwise has none, and draws every letter as a wide box.
+os.environ.setdefault('QT_QPA_FONTDIR', str(Path(os.environ.get('WINDIR', r'C:\Windows')) / 'Fonts'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
 
-from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QTextEdit  # noqa: E402
 
 app = QApplication.instance() or QApplication([])
 
@@ -21,6 +23,7 @@ from keytap.ui.vault_window import DOTS, VaultWindow, sample_controller, spaced,
 from keytap.vault import Login  # noqa: E402
 
 SECRET = 'JBSWY3DPEHPK3PXP'
+ANDROID = 'android://TaLviCw10Tcjk_stQJrL0-uOoXrTtEcKX9q5DFB329e7as4oeNxHU0QgqH9uZtNdK2Qx@com.instagram.android'
 LOGINS = [
     Login('1', 'store.steampowered.com', 'viridaria', 'pw-one', uris=('https://store.steampowered.com',),
           favorite=True, folder_id='g'),
@@ -28,11 +31,14 @@ LOGINS = [
     Login('3', 'GitHub', 'blossqt', 'pw-three', totp=SECRET, folder_id='w', fields=(('PIN', '2468'),),
           hidden=frozenset({'PIN'}), notes='Work account.'),
     Login('4', 'Bank', 'me', 'pw-four', reprompt=True),
+    Login('5', 'android.instagram.com', 'not_evan_', 'pw-five-' + 'x' * 60, uris=(
+        ANDROID, 'https://www.instagram.com/accounts/login/?next=https%3A%2F%2Fwww.instagram.com%2Fdirect%2F')),
 ]
 
 
 def texts(widget) -> str:
-    return '\n'.join(label.text() for label in widget.findChildren(QLabel))
+    return '\n'.join([label.text() for label in widget.findChildren(QLabel)] +
+                     [text.text() for text in widget.findChildren(QTextEdit)])
 
 
 class VaultWindowTest(unittest.TestCase):
@@ -55,10 +61,11 @@ class VaultWindowTest(unittest.TestCase):
         self.window.list.setCurrentRow(self.names().index(name))
 
     def test_lists_sorted_with_filters_and_folders(self):
-        self.assertEqual(self.names(), ['Bank', 'GitHub', 'Steam Community', 'store.steampowered.com'])
+        self.assertEqual(self.names(), ['android.instagram.com', 'Bank', 'GitHub', 'Steam Community',
+                                        'store.steampowered.com'])
         filters = [self.window.filters.item(i).text() for i in range(self.window.filters.count())]
-        self.assertEqual(filters, ['All logins   4', 'Favourites   1', 'Verification codes   1', 'FOLDERS',
-                                   'Games   2', 'Work   1', 'No folder   1'])
+        self.assertEqual(filters, ['All logins   5', 'Favourites   1', 'Verification codes   1', 'FOLDERS',
+                                   'Games   2', 'Work   1', 'No folder   2'])
         self.window.filters.setCurrentRow(4)                 # Games
         self.assertEqual(self.names(), ['Steam Community', 'store.steampowered.com'])
         self.window.filters.setCurrentRow(1)                 # Favourites
@@ -71,7 +78,7 @@ class VaultWindowTest(unittest.TestCase):
         self.assertEqual(self.names(), ['GitHub'])
         self.window.search.setText('steamcommunity.com smurf')
         self.assertEqual(self.names(), ['Steam Community'])
-        self.assertEqual(self.window.count.text(), '1 of 4 logins')
+        self.assertEqual(self.window.count.text(), '1 of 5 logins')
 
     def test_secrets_stay_hidden_until_shown(self):
         self.select('GitHub')
@@ -81,7 +88,7 @@ class VaultWindowTest(unittest.TestCase):
         self.assertNotIn('2468', shown, 'a hidden custom field is hidden too')
         self.assertIn(DOTS, shown)
         self.assertIn('Work account.', shown)
-        masked = [label for label in self.window.details.widget().findChildren(QLabel) if label.text() == DOTS]
+        masked = [text for text in self.window.details.widget().findChildren(QTextEdit) if text.text() == DOTS]
         reveal = masked[0].parentWidget().reveal         # the password's field comes first
         reveal.click()
         self.assertIn('pw-three', texts(self.window.details))
@@ -124,6 +131,34 @@ class VaultWindowTest(unittest.TestCase):
             self.assertNotIn(login.username, everything.split('\n'))
             self.assertNotIn(login.password, everything)
         self.assertIn('Signed in as someone@example.com', everything)
+
+    def test_long_values_wrap_instead_of_widening_the_window(self):
+        self.window.resize(740, 520)                       # the smallest it goes
+        self.window.show()                                 # offscreen: laid out as on screen
+        try:
+            self.select('android.instagram.com')
+            self.window.details.widget().findChildren(QTextEdit)[2].parentWidget().reveal.click()   # the password
+            for _ in range(10):        # the layout settles, as it does between frames on screen
+                app.processEvents()
+            page = self.window.details.widget()
+            self.assertLessEqual(page.minimumSizeHint().width(), self.window.details.viewport().width(),
+                                 'nothing in the login is wider than its pane')
+            shown = texts(self.window.details)
+            self.assertIn('com.instagram.android', shown.split('\n'), 'an Android app by its name')
+            self.assertNotIn(ANDROID, shown.split('\n'))
+            self.assertIn('pw-five-' + 'x' * 60, shown, 'the whole password, wrapped')
+            for text in page.findChildren(QTextEdit):      # each row is as tall as its wrapped text
+                self.assertGreaterEqual(text.parentWidget().height(), text.height())
+                self.assertLessEqual(text.document().size().height(), text.height() + 1)
+            self.assertLessEqual(self.window.sidebar.width() + self.window.middle.width(), 740 - 300)
+            # Copying a selection by hand keeps it out of the clipboard history too.
+            name = page.findChildren(QTextEdit)[0]
+            name.selectAll()
+            mime = name.createMimeDataFromSelection()
+            self.assertEqual(mime.text(), 'android.instagram.com', 'without the places a line may break')
+            self.assertIn('application/x-qt-windows-mime;value="CanIncludeInClipboardHistory"', mime.formats())
+        finally:
+            self.window.hide()
 
     def test_helpers(self):
         self.assertEqual(spaced('123456'), '123 456')

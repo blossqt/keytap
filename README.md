@@ -77,7 +77,17 @@ the logins.
 
 It works in ordinary Windows programs, Store apps, and Chromium/Electron apps
 (Discord, Slack, many game launchers). It stays out of browsers, where the
-Bitwarden extension does this. Games that draw their own screens don't tell
+Bitwarden extension does this.
+
+A login box on a web page inside a program goes by the page's website, as in a
+browser. That covers a built-in browser (like the one in Claude's desktop app)
+and an app made of web pages (like Discord, whose sign-in is discord.com).
+There Keytap lists the logins saved for that website and remembers an
+*Always use* choice for the website rather than the program. A login saved
+only for an Android app names no website, so it is only suggested, when its
+name has the website's in it.
+
+Games that draw their own screens don't tell
 Windows where their boxes are, so nothing can pop up there - the hotkey still
 works. **Don't pop up in…** at the bottom of the list keeps it out of one
 program; the tray menu's **Pop up in login boxes** turns it off altogether.
@@ -94,11 +104,15 @@ Keytap types without asking only when it is sure:
 
 - **Remembered** - you ticked *Always use* in the list. This is kept on this
   PC only (Settings → Remembered programs). Browsers, terminals and remote
-  desktops are remembered per window title rather than per program.
+  desktops are remembered per window title rather than per program, and a
+  web page inside a program per website.
 - **A URI on the login**, set in Bitwarden on any device:
   - `app://steam.exe` - this program (a full path works too)
   - `title://Sign in to Steam` - a window whose title contains that text
     (`*` and `?` work as wildcards)
+- **The website**, for a login box on a web page inside a program: the one
+  login saved for that website, as Bitwarden's extension would fill it. Keytap
+  sees which page the box is on while the pop-up in login boxes is on.
 
 Otherwise Keytap suggests logins whose name or website matches the program or
 window title, and lets you choose. It never types a guess: a password typed

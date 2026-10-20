@@ -321,7 +321,10 @@ class SettingsDialog(QDialog):
         self._links.setMaximumHeight(120)
         for key, login_id in sorted(self.settings.links.items()):
             program, _, title = key.partition('|')
-            where = f'{program}, “{title}”' if title else program
+            if title.startswith('site:'):         # a web page in the program, by its website
+                where = f'{title[5:]} in {program}'
+            else:
+                where = f'{program}, “{title}”' if title else program
             item = QListWidgetItem(f'{where}  →  {controller.login_name(login_id)}')
             item.setData(Qt.UserRole, key)
             self._links.addItem(item)

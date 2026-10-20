@@ -172,6 +172,39 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(matching.link_key(window('mstsc.exe', 'server1 - Remote Desktop Connection')),
                          'mstsc.exe|server1 - Remote Desktop Connection')
         self.assertEqual(matching.describe(window('steam.exe', 'Steam')), 'steam.exe')
+        # On a web page, by its website: the program could be showing any.
+        claude, page = window('claude.exe', 'Claude'), 'https://www.instagram.com/accounts/login/?next=%2F'
+        self.assertEqual(matching.link_key(claude, page), 'claude.exe|site:instagram.com')
+        self.assertEqual(matching.describe(claude, page), 'instagram.com')
+        self.assertEqual(matching.link_key(claude, 'http://localhost:3000/'), 'claude.exe', 'no website: the program')
+
+    def test_web_page_in_a_program(self):
+        # Claude's desktop app has a browser of its own, where Bitwarden's extension can't help.
+        claude, page = window('claude.exe', 'Claude'), 'https://www.instagram.com/accounts/login/'
+        one = Login('1', 'www.instagram.com', 'not_evan_', 'a', uris=('https://www.instagram.com/',))
+        two = Login('2', 'Instagram', 'blossqt', 'b', uris=('instagram.com',))
+        app = Login('3', 'com.instagram.android', 'not_evan_', 'c',
+                    uris=('android://hash@com.instagram.android',))
+        claude_login = Login('4', 'Claude', 'me', 'd', uris=('https://claude.ai',))
+        other = Login('5', 'GitHub', 'blossqt', 'e', uris=('https://github.com',))
+        logins = [other, claude_login, app, two, one]
+        found = matching.find(claude, logins, {}, page)
+        self.assertEqual([(m.login.id, m.strength) for m in found], [('2', 'page'), ('1', 'page'), ('3', 'hint')],
+                         "the page's website, not the program's name")
+        self.assertIsNone(matching.sure_choice(found), 'two accounts there: ask')
+        self.assertIs(matching.sure_choice(matching.find(claude, [one, app, other], {}, page)), one,
+                      'one login for the website: typed, as Bitwarden fills it in a browser')
+        # Remembered for the website, not for every page in the program.
+        links = {'claude.exe|site:instagram.com': '2'}
+        self.assertIs(matching.sure_choice(matching.find(claude, logins, links, page)), two)
+        github = matching.find(claude, logins, links, 'https://github.com/login')
+        self.assertEqual([(m.login.id, m.strength) for m in github], [('5', 'page')])
+        # Off the page - Claude's own chat box, say - the program goes by its name, as before.
+        self.assertEqual([(m.login.id, m.strength) for m in matching.find(claude, logins, links)], [('4', 'hint')])
+        # Steam's websites are one account.
+        steam = Login('6', 'Steam', 'v', 'f', uris=('https://store.steampowered.com',))
+        self.assertEqual([m.strength for m in matching.find(claude, [steam], {}, 'https://steamcommunity.com/login')],
+                         ['page'])
 
 
 class HotkeyTests(unittest.TestCase):

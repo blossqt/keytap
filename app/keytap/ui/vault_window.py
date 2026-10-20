@@ -20,14 +20,15 @@ Windows - clears every login off it at once.
 
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPixmap,
-                           QShortcut)
+                           QShortcut, QTextOption)
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton,
-                               QScrollArea, QStackedWidget, QStyle, QStyledItemDelegate, QToolButton, QVBoxLayout,
-                               QWidget)
+                               QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QTextEdit,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from .. import totp
 from . import icons, theme
@@ -42,6 +43,97 @@ def _label(text: str = '', size: float = 9.5, weight=QFont.Normal, role: str = '
     if role:
         label.setProperty('role', role)
     return label
+
+
+def private_mime(text: str) -> QMimeData:
+    """Text for the clipboard that stays out of Windows' clipboard history and cloud clipboard."""
+    mime = QMimeData()
+    mime.setText(text)
+    for name, value in (('ExcludeClipboardContentFromMonitorProcessing', b'\x01\x00\x00\x00'),
+                        ('CanIncludeInClipboardHistory', b'\x00\x00\x00\x00'),
+                        ('CanUploadToCloudClipboard', b'\x00\x00\x00\x00')):
+        mime.setData(f'application/x-qt-windows-mime;value="{name}"', QByteArray(value))
+    return mime
+
+
+_BREAK = '\u200b'                       # zero-width space: somewhere a line may break
+_BREAK_AFTER = str.maketrans({ch: ch + _BREAK for ch in './@_=&'})
+
+
+def _mono(size: float) -> QFont:
+    font = QFont('Cascadia Mono')
+    if not font.exactMatch():
+        font = QFont('Consolas')
+    font.setPointSizeF(size)
+    return font
+
+
+class _Text(QTextEdit):
+    """A login's text, selectable like a label's, that wraps anywhere: a long address or
+    password carries on onto the next line rather than pushing the pane wider than the window.
+    Lines may also break after the dots and slashes of addresses (Windows' own rules keep
+    "instagram.com" in one piece), and what is copied from it is kept private."""
+
+    def __init__(self, text: str = '', font: QFont | None = None, margins: tuple[int, ...] = (0, 0, 0, 0)):
+        super().__init__()
+        self._heights: dict[int, int] = {}      # its height at each width it has been asked about
+        self.setObjectName('text')
+        self.setReadOnly(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.setFocusPolicy(Qt.ClickFocus)
+        self.setTabChangesFocus(True)
+        policy = QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        policy.setHeightForWidth(True)          # its height follows its width, in the same layout pass
+        self.setSizePolicy(policy)
+        self.setViewportMargins(*margins)
+        self.document().setDocumentMargin(0)
+        self.setFont(font or theme.font(10.5))
+        self.setText(text)
+
+    def setText(self, text: str) -> None:       # always plain: nothing in a vault is markup
+        self.setPlainText(text.translate(_BREAK_AFTER))
+        self._heights.clear()
+        self.updateGeometry()
+
+    def text(self) -> str:
+        return self.toPlainText().replace(_BREAK, '')
+
+    def createMimeDataFromSelection(self) -> QMimeData:
+        selected = self.textCursor().selectedText().replace('\u2029', '\n').replace(_BREAK, '')
+        return private_mime(selected)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        if width not in self._heights:
+            margins = self.viewportMargins()
+            layout = self.document().clone()    # laid out at that width without disturbing the one shown
+            layout.setDefaultFont(self.font())
+            layout.setTextWidth(max(1, width - margins.left() - margins.right()))
+            height = math.ceil(layout.size().height()) + margins.top() + margins.bottom()
+            self._heights[width] = max(height, QFontMetrics(self.font()).height())
+        return self._heights[width]
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.FontChange:
+            self._heights.clear()
+            self.updateGeometry()
+        super().changeEvent(event)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, QFontMetrics(self.font()).height())
+
+    def sizeHint(self) -> QSize:
+        width = max(self.width(), 1)
+        return QSize(QFontMetrics(self.font()).horizontalAdvance(self.toPlainText()[:40]), self.heightForWidth(width))
+
+    def wheelEvent(self, event):
+        event.ignore()                          # the pane scrolls, not the text
 
 
 def avatar(name: str, size: int, on_pink: bool = False) -> QPixmap:
@@ -141,14 +233,7 @@ class _Field(QWidget):
         text = QVBoxLayout()
         text.setSpacing(1)
         text.addWidget(_label(label, 8, role='dim'))
-        self.value = _label('', 10.5)
-        if mono:
-            font = QFont('Cascadia Mono')
-            if not font.exactMatch():
-                font = QFont('Consolas')
-            font.setPointSizeF(10.5)
-            self.value.setFont(font)
-        self.value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.value = _Text('', _mono(10.5) if mono else None)
         self.value.setToolTip(tip)
         text.addWidget(self.value)
         row.addLayout(text, 1)
@@ -190,8 +275,7 @@ class _Field(QWidget):
         if self._secret and not self._shown:
             self.value.setText(DOTS if self._value else '')
         else:
-            shown = self._value if len(self._value) <= 90 else self._value[:88] + '…'
-            self.value.setText(shown)
+            self.value.setText(self._value)
 
 
 class _Section(QFrame):
@@ -265,13 +349,14 @@ class Details(QScrollArea):
         head.addWidget(picture, 0, Qt.AlignTop)
         names = QVBoxLayout()
         names.setSpacing(2)
-        title = _label(login.name, 15, QFont.DemiBold)
-        title.setWordWrap(True)
-        title.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        names.addWidget(title)
+        names.addStretch(1)
+        names.addWidget(_Text(login.name, theme.font(15, QFont.DemiBold)))
         where = ' · '.join(part for part in ('★ Favourite' if login.favorite else '', folder) if part)
         if where:
-            names.addWidget(_label(where, 8.5, role='dim'))
+            folder_line = _label(where, 8.5, role='dim')
+            folder_line.setWordWrap(True)
+            names.addWidget(folder_line)
+        names.addStretch(1)
         head.addLayout(names, 1)
         layout.addLayout(head)
 
@@ -311,25 +396,19 @@ class Details(QScrollArea):
 
         if login.notes:
             notes = _Section('Notes')
-            text = _label(login.notes, 9.5)
-            text.setWordWrap(True)
-            text.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            text.setContentsMargins(14, 10, 14, 10)
-            notes.add(text)
+            notes.add(_Text(login.notes, theme.font(9.5), margins=(14, 10, 14, 10)))
             layout.addWidget(notes)
 
-        foot = QHBoxLayout()
-        keys = self.owner.hotkeys()
-        hint = _label(f'Press {keys.get("type", "")} in a program to type this login there.', 8.25, role='dim')
-        hint.setWordWrap(True)
-        foot.addWidget(hint, 1)
         edit = QPushButton('Edit in Bitwarden')
         edit.setIcon(QIcon(icons.glyph('external', theme.colors().text, 16, 1.7)))
         edit.setCursor(Qt.PointingHandCursor)
         edit.setToolTip('Keytap only reads your vault - changes are made in Bitwarden')
         edit.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.owner.edit_url(login))))
-        foot.addWidget(edit)
-        layout.addLayout(foot)
+        layout.addWidget(edit, 0, Qt.AlignLeft)
+        keys = self.owner.hotkeys()
+        hint = _label(f'Press {keys.get("type", "")} in a program to type this login there.', 8.25, role='dim')
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
         layout.addStretch(1)
         self._build(page)
 
@@ -341,6 +420,10 @@ class Details(QScrollArea):
                 return _Field(label, uri[len(scheme):], copy=lambda: copy(uri, 'address'))
         if lower.endswith('.exe') and '://' not in lower:
             return _Field('Program', uri, copy=lambda: copy(uri, 'address'))
+        if lower.startswith(('androidapp://', 'android://')):
+            # androidapp://com.instagram.android, or as Chrome saves it, android://<app's key>@<app>
+            app = uri.split('://', 1)[1].rsplit('@', 1)[-1].strip('/')
+            return _Field('Android app', app, copy=lambda: copy(uri, 'address'), tip=uri)
         web = lower.startswith(('http://', 'https://')) or ('://' not in lower and '.' in lower)
         url = uri if '://' in lower else f'https://{uri}'
         return _Field('Website' if web else 'Address', uri, copy=lambda: copy(uri, 'address'),
@@ -527,7 +610,7 @@ class VaultWindow(QWidget):
         self.setWindowIcon(icons.app_icon())
         self.setObjectName('vault')
         self.resize(1000, 640)
-        self.setMinimumSize(760, 480)
+        self.setMinimumSize(740, 480)
         self._apply_style()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -568,6 +651,8 @@ class VaultWindow(QWidget):
             QListWidget#filters::item:selected {{ background: {c.selected.name()}; color: {c.selected_text.name()}; }}
             QListWidget#filters::item:hover:!selected {{ background: {c.hover.name()}; }}
             QListWidget#logins {{ background: transparent; border: none; outline: none; }}
+            QTextEdit#text {{ color: {c.text.name()}; background: transparent; border: none;
+                              selection-background-color: {theme.ACCENT}; selection-color: {theme.ON_ACCENT}; }}
         """)
 
     def _header(self) -> QWidget:
@@ -610,24 +695,23 @@ class VaultWindow(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
 
-        side = QWidget()
+        self.sidebar = side = QWidget()
         side.setObjectName('sidebar')
         side.setAttribute(Qt.WA_StyledBackground)
-        side.setFixedWidth(210)
         column = QVBoxLayout(side)
         column.setContentsMargins(10, 14, 10, 10)
         self.filters = QListWidget()
         self.filters.setObjectName('filters')
         self.filters.setIconSize(QSize(16, 16))
         self.filters.setFont(theme.font(9.25))
+        self.filters.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)     # a long folder name is cut short
         self.filters.currentRowChanged.connect(lambda _: self._fill_list())
         column.addWidget(self.filters)
         row.addWidget(side)
 
-        middle = QWidget()
+        self.middle = middle = QWidget()
         middle.setObjectName('listPane')
         middle.setAttribute(Qt.WA_StyledBackground)
-        middle.setFixedWidth(330)
         column = QVBoxLayout(middle)
         column.setContentsMargins(10, 12, 10, 6)
         column.setSpacing(8)
@@ -653,7 +737,18 @@ class VaultWindow(QWidget):
         self.details = Details(self)
         self.details.confirm.connect(self._confirm)
         row.addWidget(self.details, 1)
+        self._fit_panes()
         return page
+
+    def _fit_panes(self) -> None:
+        """In a narrower window the filters and the list narrow too, so the login keeps room."""
+        width = self.width()
+        self.sidebar.setFixedWidth(round(min(210, max(180, width * 0.2))))
+        self.middle.setFixedWidth(round(min(330, max(250, width * 0.32))))
+
+    def resizeEvent(self, event):
+        self._fit_panes()
+        super().resizeEvent(event)
 
     # ------------------------------------------------------------------ keeping up with the vault
 

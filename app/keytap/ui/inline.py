@@ -10,7 +10,7 @@ from PySide6.QtCore import QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter
 from PySide6.QtWidgets import QWidget
 
-from ..matching import LINKED, URI
+from ..matching import LINKED, PAGE, URI
 from . import icons, theme
 from .card import to_logical, to_physical
 
@@ -20,7 +20,7 @@ ROW = 42
 FOOTER = 28
 MIN_WIDTH, MAX_WIDTH = 290, 380
 MAX_LOGINS = 6
-_TAGS = {LINKED: 'Always', URI: 'Matches'}
+_TAGS = {LINKED: 'Always', URI: 'Matches', PAGE: 'Matches'}
 
 
 class InlineMenu(QWidget):
@@ -43,8 +43,10 @@ class InlineMenu(QWidget):
 
     # ------------------------------------------------------------------ showing
 
-    def present(self, field, matches, program: str) -> None:
-        """matches: [(login, strength)] to offer, or None while the vault is locked."""
+    def present(self, field, matches, place: str, program: str) -> None:
+        """matches: [(login, strength)] to offer, or None while the vault is locked. place is
+        what the box is in - the program, or the website of the page it is on; program is what
+        "Don't pop up in" mutes."""
         self.field, self.program = field, program
         if matches is None:
             self._rows = [('unlock', None, 'Unlock Keytap', 'to fill this from your vault', '')]
@@ -52,8 +54,8 @@ class InlineMenu(QWidget):
             self._rows = [('login', login, login.name, login.username or 'no username', _TAGS.get(strength, ''))
                           for login, strength in matches[:MAX_LOGINS]]
             more = len(matches) - MAX_LOGINS
-            detail = (f'and {more} more for {program}' if more > 0 else
-                      '' if matches else f'nothing saved for {program} yet')
+            detail = (f'and {more} more for {place}' if more > 0 else
+                      '' if matches else f'nothing saved for {place} yet')
             self._rows.append(('search', None, 'Search your vault…' if matches else 'Choose a login…',
                                detail, ''))
         self._hover = None
@@ -78,6 +80,7 @@ class InlineMenu(QWidget):
 
     def describe(self) -> dict:
         return {'visible': self.isVisible(), 'kind': self.field.kind if self.field else '',
+                'page': self.field.page if self.field else '',
                 'rows': [title for _, _, title, _, _ in self._rows]}
 
     def row_point(self, index: int) -> tuple[int, int]:
