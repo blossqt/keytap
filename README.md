@@ -83,7 +83,10 @@ A login box on a web page inside a program goes by the page's website, as in a
 browser. That covers a built-in browser (like the one in Claude's desktop app)
 and an app made of web pages (like Discord, whose sign-in is discord.com).
 There Keytap lists the logins saved for that website and remembers an
-*Always use* choice for the website rather than the program. A login saved
+*Always use* choice for the website rather than the program. A choice made for
+the program before still holds on that login's own website. A page a program
+serves itself (Steam's own screens, an app's `localhost` page) goes by the
+program, as other programs do. A login saved
 only for an Android app names no website, so it is only suggested, when its
 name has the website's in it.
 

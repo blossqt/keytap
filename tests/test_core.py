@@ -206,6 +206,33 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual([m.strength for m in matching.find(claude, [steam], {}, 'https://steamcommunity.com/login')],
                          ['page'])
 
+    def test_pages_a_program_serves_itself(self):
+        # Steam draws its own screens as web pages from steamloopback.host: the program decides, as before.
+        w = window('steamwebhelper.exe', 'Sign in to Steam')
+        mine = Login('v', 'store.steampowered.com', 'viridaria', 'x', uris=('https://store.steampowered.com',))
+        for page in ('https://steamloopback.host/index.html', 'http://localhost:5173/login',
+                     'https://127.0.0.1:52144/rso', 'http://192.168.1.20/', 'https://ui.app.localhost/'):
+            self.assertEqual(matching.page_site(page), '', page)
+            self.assertEqual(matching.link_key(w, page), 'steamwebhelper.exe', page)
+            found = matching.find(w, [mine], {'steamwebhelper.exe': 'v'}, page)
+            self.assertEqual([(m.login.id, m.strength) for m in found], [('v', 'linked')], page)
+        self.assertEqual(matching.page_site('https://www.instagram.com/x'), 'instagram.com')
+        self.assertEqual(matching.page_site('https://8.8.8.8/'), '8.8.8.8')
+
+    def test_choice_remembered_for_the_program_before(self):
+        # Remembered for discord.exe before Keytap knew Discord's page: still used on discord.com,
+        discord = window('discord.exe', 'Discord')
+        main = Login('d', 'Discord', 'main', 'x', uris=('https://discord.com',))
+        alt = Login('a', 'Discord alt', 'alt', 'y', uris=('https://discord.com/login',))
+        found = matching.find(discord, [alt, main], {'discord.exe': 'd'}, 'https://discord.com/login')
+        self.assertIs(matching.sure_choice(found), main)
+        # but never on another website the program shows.
+        claude = window('claude.exe', 'Claude')
+        insta = Login('i', 'Instagram', 'me', 'z', uris=('https://instagram.com',))
+        github = Login('g', 'GitHub', 'me', 'q', uris=('https://github.com',))
+        found = matching.find(claude, [insta, github], {'claude.exe': 'i'}, 'https://github.com/login')
+        self.assertEqual([(m.login.id, m.strength) for m in found], [('g', 'page')])
+
 
 class HotkeyTests(unittest.TestCase):
     def test_parse(self):

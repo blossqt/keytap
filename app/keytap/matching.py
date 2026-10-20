@@ -8,7 +8,8 @@ A login is tied to a program in one of these ways, strongest first:
   contains that text (* and ? as wildcards);
 - the web page: for a box on a web page inside a program (an app's built-in
   browser, or an app made of web pages, like Discord), saved for that page's
-  website, as Bitwarden's extension matches logins in a browser;
+  website, as Bitwarden's extension matches logins in a browser. A page the
+  program serves itself (Steam's own screens, say) counts as no page;
 - the same website: saved for the website of a login tied the first or second
   way - another account there. Steam's sign-in window is steamwebhelper.exe
   and its logins are saved for steampowered.com, so remembering one of them
@@ -27,6 +28,7 @@ away only for the first three.
 from __future__ import annotations
 
 import fnmatch
+import ipaddress
 import re
 from dataclasses import dataclass
 from pathlib import PureWindowsPath
@@ -57,6 +59,10 @@ SHARED_PROGRAMS = BROWSERS | {
     'explorer.exe', 'applicationframehost.exe', 'rundll32.exe', 'dllhost.exe',
 }
 
+# Pages a program serves itself, which say nothing about whose login it wants:
+# Steam draws its own screens as https://steamloopback.host/...
+_OWN_HOSTS = {'localhost', 'steamloopback.host'}
+
 _COMMON_HOST_LABELS = {'www', 'com', 'net', 'org', 'app', 'login', 'accounts', 'account', 'auth',
                        'signin', 'secure', 'my', 'id', 'sso', 'portal', 'co', 'io'}
 
@@ -67,9 +73,27 @@ class Match:
     strength: str
 
 
+def page_site(page: str) -> str:
+    """The website of a web page inside a program, or '' for none. A page the program serves
+    itself (localhost, a private address, Steam's steamloopback.host) counts as none: then
+    the program, not the page, says which login it wants."""
+    try:
+        host = (urlparse(page).hostname or '').strip('.').lower() if page else ''
+    except ValueError:
+        return ''
+    if not host or host in _OWN_HOSTS or host.endswith('.localhost'):
+        return ''
+    try:
+        if not ipaddress.ip_address(host).is_global:
+            return ''
+    except ValueError:
+        pass                        # a name, not an address
+    return site_of(page)
+
+
 def link_key(window, page: str = '') -> str:
     """What a remembered choice is filed under for this window, or for the web page in it."""
-    site = site_of(page) if page else ''
+    site = page_site(page)
     if site:
         return f'{window.exe}|site:{site}'
     if window.exe in SHARED_PROGRAMS or not window.exe:
@@ -79,7 +103,7 @@ def link_key(window, page: str = '') -> str:
 
 def describe(window, page: str = '') -> str:
     """'steam.exe'; for a browser and the like, its window's title; on a web page, its website."""
-    site = site_of(page) if page else ''
+    site = page_site(page)
     if site:
         return site
     if window.exe in SHARED_PROGRAMS or not window.exe:
@@ -207,8 +231,15 @@ def hints_at(login, window, page: str = '') -> bool:
 def find(window, logins, links: dict[str, str], page: str = '') -> list[Match]:
     """The logins that go with this window - or with the web page in it, for a box on one -
     strongest first."""
+    site = page_site(page)
+    page = page if site else ''               # a page the program serves itself: go by the program
+    on_page = _also(site) if site else set()
     linked_id = links.get(link_key(window, page))
-    on_page = _also(site_of(page)) if page and site_of(page) else set()
+    if not linked_id and on_page:
+        # Chosen for the program before Keytap knew the page: still good on its own website.
+        earlier = links.get(link_key(window))
+        if any(login.id == earlier and _sites(login) & on_page for login in logins):
+            linked_id = earlier
     strength = {}
     for login in logins:
         if linked_id and login.id == linked_id:

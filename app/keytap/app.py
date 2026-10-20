@@ -203,7 +203,7 @@ class Controller(QObject):
     def _choose(self, action: str, window) -> None:
         # In a login box on a web page (an app's built-in browser, say), the page's website decides.
         field = self.fields.current(window)
-        page = field.page if field is not None and matching.site_of(field.page) else ''
+        page = field.page if field is not None and matching.page_site(field.page) else ''
         matches = matching.find(window, self.logins, self.settings.links, page)
         if action == 'type':
             login = matching.sure_choice(matches)
@@ -473,12 +473,12 @@ class Controller(QObject):
             return
         self._dismissed = None
         matches = None
-        page = field.page if matching.site_of(field.page) else ''
+        page = field.page if matching.page_site(field.page) else ''
         if self.unlocked:
             matches = [(m.login, m.strength)
                        for m in matching.find(field.window, self.logins, self.settings.links, page)]
         program = field.window.exe or 'this program'
-        self.inline.present(field, matches, matching.site_of(page) or program, program)
+        self.inline.present(field, matches, matching.page_site(page) or program, program)
         self._inline_rect = win32.window_rect(field.window.hwnd)
         self._inline_watch.start()
         self.hotkeys.take_escape(True)
