@@ -1,0 +1,6 @@
+PySide6-Essentials==6.11.2
+pyinstaller==6.22.3
+# UI Automation, for spotting login boxes in other programs
+comtypes==1.4.17
+# Bitwarden's CLI is not a Python package: it runs as its own program
+# (tools\bw\bw.exe), fetched by bootstrap.ps1.
