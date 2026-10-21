@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Keytap's package: no files of its own, only Keytap's identity, pointing at
+  the folder Keytap.exe is in (a "package with external location"). Windows
+  takes passkey providers only from a packaged app, and finds Keytap's COM
+  class (IPluginAuthenticator) here. Keytap's writes are not redirected:
+  it runs as the ordinary program it is.
+
+  Raise the Version when anything here changes: Keytap registers the package
+  again when the one in its folder is newer than the one Windows has.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  IgnorableNamespaces="uap uap10 rescap desktop6 com">
+  <Identity Name="Blossqt.Keytap" Publisher="CN=blossqt" Version="1.0.0.0" ProcessorArchitecture="x64"/>
+  <Properties>
+    <DisplayName>Keytap</DisplayName>
+    <PublisherDisplayName>blossqt</PublisherDisplayName>
+    <Logo>package\logo-50.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us"/>
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.26100.0" MaxVersionTested="10.0.26300.0"/>
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust"/>
+    <rescap:Capability Name="unvirtualizedResources"/>
+  </Capabilities>
+  <Applications>
+    <Application Id="Keytap" Executable="Keytap.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="Keytap" Description="Bitwarden auto-type and passkeys"
+                          BackgroundColor="transparent" Square150x150Logo="package\logo-150.png"
+                          Square44x44Logo="package\logo-44.png"/>
+      <Extensions>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Keytap.exe" Arguments="--passkeys" DisplayName="Keytap">
+              <com:Class Id="8e4a1c7b-5d3f-4b2a-9c6e-1f0d2a3b4c5d" DisplayName="Keytap"/>
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

@@ -380,6 +380,35 @@ class SettingsDialog(QDialog):
         self._show_hello()
         layout.addStretch(1)
 
+        # ---------------------------------------------------------------- passkeys
+        page, layout = _page(tabs, 'Passkeys')
+        layout.addWidget(_heading('Sign in with the passkeys in your vault'))
+        layout.addWidget(_note(
+            "When a website or app asks for a passkey, Windows' passkey window can offer Keytap. Keytap signs "
+            'in with the passkeys already in your Bitwarden vault, checking it is you with Windows Hello. It '
+            "doesn't save new passkeys: save those with Bitwarden's browser extension or app."))
+        layout.addSpacing(6)
+        self._passkey_steps = QLabel('Checking…')
+        self._passkey_steps.setTextFormat(Qt.RichText)
+        layout.addWidget(self._passkey_steps)
+        row = QHBoxLayout()
+        self._passkey_setup = QPushButton('Set up passkeys…')
+        self._passkey_setup.clicked.connect(lambda: (self.reject(), controller.set_up_passkeys()))
+        self._passkey_windows = QPushButton('Open Windows passkey settings')
+        self._passkey_windows.clicked.connect(controller.open_passkey_settings)
+        self._passkey_off = QPushButton('Turn off passkeys')
+        self._passkey_off.clicked.connect(self._turn_off_passkeys)
+        for button in (self._passkey_setup, self._passkey_windows, self._passkey_off):
+            button.hide()
+            row.addWidget(button)
+        row.addStretch(1)
+        layout.addLayout(row)
+        layout.addWidget(_note('Setting up asks Windows, once, to trust Keytap\'s certificate (an administrator '
+                               'prompt): Windows takes passkey providers only from signed app packages, and '
+                               'Keytap\'s gives it that identity without moving any of its files.'))
+        layout.addStretch(1)
+        background.run(controller.passkey_status, self._show_passkeys)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
@@ -391,6 +420,34 @@ class SettingsDialog(QDialog):
         bottom.addStretch(1)
         bottom.addWidget(buttons)
         outer.addLayout(bottom)
+
+    def _show_passkeys(self, status, error) -> None:
+        try:
+            if error is not None or status is None:
+                self._passkey_steps.setText(f'Could not check: {error}')
+                return
+            if status['why']:
+                self._passkey_steps.setText(status['why'])
+                return
+            steps = [('Windows trusts Keytap\'s certificate', status['trusted']),
+                     ('Keytap\'s package is registered for this folder', status['registered']),
+                     ('Keytap runs as its package', status['identity']),
+                     ('Switched on in Windows\' passkey settings', status['state'] == 'enabled')]
+            self._passkey_steps.setText('<br>'.join(
+                f'{"✓" if done else "○"}&nbsp;&nbsp;{text}' for text, done in steps))
+            ready = status['trusted'] and status['registered'] and status['identity']
+            self._passkey_setup.setVisible(not ready)
+            self._passkey_windows.setVisible(status['identity'] and status['state'] != 'enabled')
+            self._passkey_off.setVisible(status['identity'] or status['registered'])
+        except RuntimeError:            # the dialog closed first
+            pass
+
+    def _turn_off_passkeys(self) -> None:
+        answer = QMessageBox.question(self, 'Keytap', 'Stop Keytap being a passkey provider? Your passkeys stay in '
+                                      'your vault; Keytap restarts.')
+        if answer == QMessageBox.Yes:
+            self.reject()
+            self.controller.turn_off_passkeys()
 
     def _show_hello(self, on: bool | None = None) -> None:
         controller = self.controller

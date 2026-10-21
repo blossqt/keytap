@@ -18,15 +18,17 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import QObject, Qt, QTimer
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QObject, QProcess, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
-from . import APP_NAME, __version__, background, focus, hello, matching, sequence, totp, typer, win32
+from . import (APP_NAME, __version__, background, focus, hello, matching, package, passkeys, provider, sequence,
+               totp, typer, win32)
 from .focus import FieldWatcher
 from .hotkeys import Hotkeys, SessionWatcher
 from .settings import Settings
+from .signins import PasskeySignIns
 from .suitetray import SuiteTray
 from .vault import Bitwarden, Login, NotSignedIn, Status
 from .ui import icons, theme
@@ -104,6 +106,14 @@ class Controller(QObject):
         self._inline_watch.timeout.connect(self._inline_tick)
         self.fields = FieldWatcher(self._field_wanted, self)
         self.fields.field.connect(self._field_changed)
+        # Passkeys: only with the package identity Windows asks of passkey providers (see package.py).
+        self.signins = PasskeySignIns(self)
+        self.passkey_server = None
+        if provider.identity() and provider.supported():
+            self.passkey_server = provider.Server(self.signins)
+            self.passkey_server.start()
+            background.run(lambda: provider.register(icons.app_icon_svg(), passkeys.authenticator_info()),
+                           self._passkeys_registered)
 
         self._make_tray()
         self._listen()
@@ -171,6 +181,8 @@ class Controller(QObject):
     def sign_out(self) -> None:
         self.lock()
         self._set_state('unauthenticated')
+        if self.passkey_server is not None:
+            background.run(provider.forget_credentials)
 
         def done(_, error):
             if error and not isinstance(error, NotSignedIn):
@@ -311,13 +323,14 @@ class Controller(QObject):
 
     # ------------------------------------------------------------------ unlocking
 
-    def show_unlock(self, window) -> None:
+    def show_unlock(self, window, detail: str | None = None):
         if self.card is not None:
             self.card.bring_back()
-            return
-        field = self.fields.current(window) if window else None
-        detail = (f'to fill {matching.describe(window, field.page if field else "")}' if window
-                  else self.status.email)
+            return None
+        if detail is None:
+            field = self.fields.current(window) if window else None
+            detail = (f'to fill {matching.describe(window, field.page if field else "")}' if window
+                      else self.status.email)
         card = UnlockCard('Unlock Keytap', detail, hello=self.hello_on())
         card.submitted.connect(lambda password: self._unlock(card, password))
         card.hello.connect(lambda: self._unlock(card, None))
@@ -325,10 +338,22 @@ class Controller(QObject):
         self._show_card(card, window.hwnd if window else None)
         if self.hello_on():
             QTimer.singleShot(150, lambda: self._unlock(card, None) if self.card is card else None)
+        return card
+
+    def unlock_for(self, detail: str, near_hwnd: int, then, cancelled):
+        """Unlock, then call then() - or cancelled() if the card is closed first. The card."""
+        self._drop_pending()
+        self._pending = ('call', then, cancelled)
+        return self.show_unlock(SimpleNamespace(hwnd=near_hwnd) if near_hwnd else None, detail)
+
+    def _drop_pending(self) -> None:
+        pending, self._pending = self._pending, None
+        if pending and pending[0] == 'call':
+            pending[2]()
 
     def _unlock_closed(self, card: UnlockCard) -> None:
         if not card.succeeded:
-            self._pending = None
+            self._drop_pending()
 
     def _unlock(self, card: UnlockCard, password: str | None) -> None:
         """Unlock with the master password typed into card - or, given None, with Windows Hello."""
@@ -362,6 +387,8 @@ class Controller(QObject):
                 window = pending[1]
                 win32.set_foreground(window.hwnd)
                 self.fields.give_back(window, lambda ok: QTimer.singleShot(150, self.fields.recheck))
+            elif pending and pending[0] == 'call':
+                QTimer.singleShot(0, pending[1])
             elif pending:
                 action, window = pending
                 QTimer.singleShot(0, lambda: self._choose(action, window))
@@ -422,7 +449,95 @@ class Controller(QObject):
         self._check = check
         self._set_state('unlocked')
         self._syncer.start()
+        self._sync_passkeys()
         self.sync(quiet=True)
+
+    # ------------------------------------------------------------------ passkeys
+
+    def _passkeys_registered(self, _, error) -> None:
+        if error is not None:
+            self.toasts.show('Passkeys are not working', str(error), error=True)
+            return
+        state = provider.state()
+        if state == 'disabled' and not self.settings.passkeys_told:
+            self.settings.passkeys_told = True
+            self.toasts.show('Turn Keytap on for passkeys', 'In Windows Settings: Accounts, Passkeys, Advanced '
+                             'options - then sites can use the passkeys in your vault.',
+                             action=('Open', self.open_passkey_settings))
+
+    @staticmethod
+    def passkey_status() -> dict:
+        """Where setting up passkeys stands (off the UI thread: it asks Windows and PowerShell)."""
+        why = package.unavailable()
+        status = {'why': why, 'identity': bool(provider.identity()), 'trusted': False, 'registered': False,
+                  'state': 'unregistered'}
+        if not why:
+            status['trusted'] = package.certificate_trusted()
+            try:
+                status['registered'] = not package.needs_registering()
+            except package.SetupError:
+                pass
+        if status['identity']:
+            status['state'] = provider.state()
+        return status
+
+    def set_up_passkeys(self) -> None:
+        """Trust Keytap's certificate (Windows asks an administrator, once), register Keytap's
+        package for this folder, and start again as it."""
+        def work():
+            if not package.certificate_trusted() and not package.trust_certificate():
+                return 'declined'
+            if not provider.identity() and package.needs_registering():
+                package.register()
+            return 'done'
+
+        def done(result, error):
+            if error is not None:
+                self.toasts.show('Passkeys are not set up', str(error), error=True)
+            elif result == 'declined':
+                self.toasts.show('Passkeys are not set up', 'Windows needs to trust Keytap\'s certificate, '
+                                 'once - choose Yes when it asks.', error=True)
+            elif provider.identity():
+                self.open_passkey_settings()
+            else:
+                self.toasts.show('Keytap starts again', 'Now as a passkey provider.')
+                QTimer.singleShot(1500, self.restart)
+        self.toasts.show('Setting up passkeys', 'Windows asks once whether to trust Keytap\'s certificate.')
+        background.run(work, done)
+
+    def turn_off_passkeys(self) -> None:
+        def work():
+            if provider.identity():
+                provider.forget_credentials()
+                provider.unregister()
+            package.unregister()
+
+        def done(_, error):
+            if error is not None:
+                self.toasts.show('Passkeys are still on', str(error), error=True)
+                return
+            self.toasts.show('Passkeys are off', 'Keytap is no longer a passkey provider.')
+            if provider.identity():
+                QTimer.singleShot(1500, self.restart)
+        background.run(work, done)
+
+    def restart(self) -> None:
+        if getattr(sys, 'frozen', False):
+            QProcess.startDetached(sys.executable, ['--restart'])
+        else:
+            QProcess.startDetached(sys.executable, [sys.argv[0], '--restart'])
+        self.quit()
+
+    @staticmethod
+    def open_passkey_settings() -> None:
+        QDesktopServices.openUrl(QUrl('ms-settings:passkeys-advancedoptions'))
+
+    def _sync_passkeys(self) -> None:
+        """Tell Windows which passkeys the vault has (names, not keys), for its passkey window."""
+        if self.passkey_server is None or not self.unlocked:
+            return
+        keys = [key for login in self.logins or [] for key in login.passkeys]
+        background.run(lambda: provider.sync_credentials(keys))
 
     def _load_folders(self) -> None:
         def done(folders, error):
@@ -431,16 +546,21 @@ class Controller(QObject):
                 self._refresh_vault()
         background.run(self.vault.folders, done)
 
-    def confirm(self, login: Login, then, near_hwnd: int | None = None) -> None:
-        """Ask for the master password again for a login that wants it, then go on."""
-        self._confirm(login, then, SimpleNamespace(hwnd=near_hwnd) if near_hwnd else None)
+    def confirm(self, login: Login | None, then, near_hwnd: int | None = None, cancelled=None, detail: str = ''):
+        """Ask for the master password again - for a login that wants it, say - then go on; or
+        cancelled() if the card is closed first. The card."""
+        return self._confirm(login, then, SimpleNamespace(hwnd=near_hwnd) if near_hwnd else None, cancelled, detail)
 
-    def _confirm(self, login: Login, then, window) -> None:
+    def _confirm(self, login: Login | None, then, window, cancelled=None, detail: str = ''):
         if self.card is not None:
             self.card.bring_back()
-            return
-        card = UnlockCard("Confirm it's you", f'“{login.name}” asks for your master password',
+            if cancelled is not None:
+                cancelled()
+            return None
+        card = UnlockCard("Confirm it's you", detail or f'“{login.name}” asks for your master password',
                           button='Confirm')
+        if cancelled is not None:
+            card.closed.connect(lambda: None if card.succeeded else cancelled())
 
         def submitted(password: str):
             card.busy('Checking…')
@@ -456,6 +576,7 @@ class Controller(QObject):
                 card.fail('That is not your master password.')
         card.submitted.connect(submitted)
         self._show_card(card, window.hwnd if window else None)
+        return card
 
     def lock(self) -> None:
         if not self.unlocked and not self.vault.unlocked:
@@ -464,7 +585,7 @@ class Controller(QObject):
         self.logins = None
         self.folders = {}
         self._check = None
-        self._pending = None
+        self._drop_pending()
         self._syncer.stop()
         self._hide_inline()
         if self.card is not None:
@@ -493,6 +614,7 @@ class Controller(QObject):
                 self.logins = logins
                 self._refresh_vault()
                 self._load_folders()
+                self._sync_passkeys()
                 if not quiet:
                     self.toasts.show('Synced', f'{len(logins)} logins in your vault.')
         background.run(work, done)
@@ -651,6 +773,9 @@ class Controller(QObject):
         self._copied = ''
 
     # ------------------------------------------------------------------ windows and cards
+
+    def show_card(self, card, near_hwnd) -> None:
+        self._show_card(card, near_hwnd)
 
     def _show_card(self, card, near_hwnd) -> None:
         self._hide_inline()
@@ -901,6 +1026,11 @@ def self_test(argv: list[str]) -> int:
         # Windows Hello's WinRT modules came along (whether this PC has Windows Hello or not).
         from winrt.windows.security.credentials import KeyCredentialManager  # noqa: F401
         from winrt.windows.security.cryptography import CryptographicBuffer  # noqa: F401
+        # Passkeys: COM's local server came along, and a passkey can sign.
+        import comtypes.server.localserver  # noqa: F401
+        from . import p256
+        if not p256.verify(p256.public_key(7), b'self-test', p256.sign(7, b'self-test')):
+            raise RuntimeError('passkey signing is broken')
         vault = Bitwarden()
         if not vault.available:
             raise RuntimeError("Bitwarden's CLI is not bundled")
@@ -934,8 +1064,15 @@ def main(argv: list[str] | None = None) -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(icons.app_icon())
 
+    if '--restart' in argv:
+        # Started again by the copy that is quitting (to run as its package, say): wait for it to go.
+        deadline = time.monotonic() + 20
+        while send('still-there') is not None and time.monotonic() < deadline:
+            time.sleep(0.25)
+    # Started by Windows for a passkey (COM, with --passkeys), with Windows, or again: no window.
+    quiet = any(flag in argv for flag in ('--startup', '--passkeys', '--restart'))
     message = argv[argv.index('--send') + 1] if '--send' in argv and len(argv) > argv.index('--send') + 1 else \
-        'startup' if '--startup' in argv else 'show'
+        'startup' if quiet else 'show'
     answer = send(message, reply='--send' in argv)
     if answer is not None:
         if answer:
@@ -945,6 +1082,6 @@ def main(argv: list[str] | None = None) -> int:
         print('Keytap is not running', file=sys.stderr)
         return 1
 
-    controller = Controller(startup='--startup' in argv)  # noqa: F841 - lives as long as the app
+    controller = Controller(startup=quiet)  # noqa: F841 - lives as long as the app
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())
     return app.exec()

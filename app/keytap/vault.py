@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import win32
+from .passkeys import Passkey
 
 SEQUENCE_FIELD_NAMES = ('autotype', 'auto-type', 'keytap')
 _PASSWORD_ENV = 'KEYTAP_BW_PASSWORD'
@@ -55,6 +56,7 @@ class Login:
     notes: str = field(default='', repr=False)
     folder_id: str = ''
     hidden: frozenset[str] = frozenset()     # the custom fields Bitwarden keeps hidden
+    passkeys: tuple = field(default=(), repr=False)     # passkeys.Passkey: the login's passkeys, keys included
 
     @property
     def sequence(self) -> str:
@@ -83,15 +85,18 @@ class Login:
         entries = [u for u in (login.get('uris') or []) if u and u.get('uri')]
         uris = tuple(str(u.get('uri')) for u in entries)
         uri_match = tuple(u.get('match') if isinstance(u.get('match'), int) else None for u in entries)
+        item_id = str(item.get('id') or '')
+        keys = tuple(key for key in (Passkey.from_bitwarden(item_id, fido)
+                                     for fido in (login.get('fido2Credentials') or []) if isinstance(fido, dict)) if key)
         # Text (0) and hidden (1) custom fields; booleans and linked fields have no text to type.
         kept = [f for f in (item.get('fields') or []) if f and f.get('type') in (0, 1)]
         fields = tuple((str(f.get('name') or ''), str(f.get('value') or '')) for f in kept)
-        return cls(id=str(item.get('id') or ''), name=str(item.get('name') or '(no name)'),
+        return cls(id=item_id, name=str(item.get('name') or '(no name)'),
                    username=str(login.get('username') or ''), password=str(login.get('password') or ''),
                    totp=str(login.get('totp') or ''), uris=uris, uri_match=uri_match, fields=fields,
                    reprompt=item.get('reprompt') == 1, favorite=bool(item.get('favorite')),
                    notes=str(item.get('notes') or ''), folder_id=str(item.get('folderId') or ''),
-                   hidden=frozenset(str(f.get('name') or '') for f in kept if f.get('type') == 1))
+                   hidden=frozenset(str(f.get('name') or '') for f in kept if f.get('type') == 1), passkeys=keys)
 
 
 @dataclass(frozen=True)

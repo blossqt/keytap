@@ -131,6 +131,21 @@ def render_app_icon(size: int) -> QPixmap:
     return pixmap
 
 
+def app_icon_svg() -> str:
+    """The same drawing as SVG, for Windows' passkey window, which takes its providers' logos so."""
+    k = _MARK_LARGE
+    cx, cy, r, t = k['cx'], k['cy'], k['r'], k['t']
+    corner = 64 * APP_ICON_CORNER
+    shapes = [f'<rect width="64" height="64" rx="{corner:.2f}" fill="{APP_ICON_COLOR}"/>',
+              f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{APP_ICON_MARK}"/>',
+              f'<rect x="{cx}" y="{cy - t / 2}" width="{k["x1"] - cx}" height="{t}" rx="1.2" fill="{APP_ICON_MARK}"/>']
+    shapes += [f'<rect x="{left}" y="{cy}" width="{right - left}" height="{bottom - cy}" rx="1" fill="{APP_ICON_MARK}"/>'
+               for left, right, bottom in k['teeth']]
+    shapes.append(f'<circle cx="{cx}" cy="{cy}" r="{k["hole"]}" fill="{APP_ICON_COLOR}"/>')
+    return ('<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="64" height="64" viewBox="0 0 64 64">'
+            + ''.join(shapes) + '</svg>')
+
+
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 
 

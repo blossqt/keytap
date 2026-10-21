@@ -380,6 +380,13 @@ class Details(QScrollArea):
         if part.rows.count():
             layout.addWidget(part)
 
+        if login.passkeys:
+            keys = _Section('Passkey')
+            for key in login.passkeys:
+                keys.add(_Field('Passkey', f'{key.who} on {key.rp_id}',
+                                tip='Sign in with it from the website or app: choose Keytap in Windows\' passkey window'))
+            layout.addWidget(keys)
+
         if login.uris:
             sites = _Section('Websites and programs')
             for uri in login.uris:

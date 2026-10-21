@@ -52,6 +52,12 @@ Write-Host '>> bundling the Bitwarden CLI'
 New-Item -ItemType Directory -Force (Join-Path $Tools 'bw') | Out-Null
 Copy-Item (Join-Path $Comp 'bw\*') (Join-Path $Tools 'bw') -Force -Recurse
 
+# Keytap's package (package\Keytap.msix, signed, with its certificate and logos):
+# the identity Windows asks of passkey providers. See make_package.py.
+Write-Host '>> package'
+& $Py (Join-Path $PSScriptRoot 'make_package.py')
+if ($LASTEXITCODE -ne 0) { Fail 'packaging failed' }
+
 Copy-Item (Join-Path $Root 'README.md') $Dist -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $Root 'THIRD-PARTY-NOTICES.md') $Dist -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $Root 'LICENSE') $Dist -Force -ErrorAction SilentlyContinue

@@ -134,5 +134,14 @@ class Settings:
     def welcomed(self, value: bool) -> None:
         self._store.setValue('welcomed', bool(value))
 
+    @property
+    def passkeys_told(self) -> bool:
+        """Told once to switch Keytap on in Windows' passkey settings."""
+        return self._get('passkeys/told', False, bool)
+
+    @passkeys_told.setter
+    def passkeys_told(self, value: bool) -> None:
+        self._store.setValue('passkeys/told', bool(value))
+
     def sync(self) -> None:
         self._store.sync()

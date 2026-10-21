@@ -200,6 +200,40 @@ If you change your master password, Windows Hello turns itself off until you
 turn it on again. Logins that ask for the master password again still ask for
 it.
 
+## Passkeys
+
+Keytap can sign you in with the passkeys in your Bitwarden vault, without
+Bitwarden's own app. When a website or app asks for a passkey, Windows' passkey
+window lists Keytap. Choose it:
+
+1. Unlock Keytap if it's locked.
+2. If the site has several accounts, choose one.
+3. Confirm with Windows Hello. Logins that ask for your master password again
+   ask for it instead.
+
+This works wherever Windows' passkey window comes up: Edge and Chrome without
+Bitwarden's extension, and apps built on web pages.
+
+Keytap only signs in. Save new passkeys with Bitwarden's browser extension or
+phone app. A passkey that counts its uses (a counter above 0, from an import)
+is also left to Bitwarden, which saves the count.
+
+**Setting it up.** In Settings, go to **Passkeys** and choose **Set up passkeys**:
+
+- **Trust Keytap's certificate.** Windows asks an administrator once. Windows
+  takes passkey providers only from signed app packages, and Keytap ships a
+  small one, signed with its own certificate.
+- **Register the package.** The package gives Keytap.exe that identity without
+  moving any files.
+- **Restart.** Keytap starts again, now as a passkey provider.
+- **Switch it on.** Turn Keytap on in Windows Settings → Accounts → Passkeys →
+  Advanced options. Keytap opens that page for you.
+
+Keytap gives Windows only your passkeys' websites and account names, so its
+passkey window can list them. The keys stay in your vault and in Keytap while
+it's unlocked. Each request is checked to be signed by Windows before Keytap
+answers it.
+
 ## Building
 
 ```
@@ -207,15 +241,27 @@ powershell -ExecutionPolicy Bypass -File build\bootstrap.ps1
 powershell -ExecutionPolicy Bypass -File build\build_app.ps1
 ```
 
-`bootstrap.ps1` makes a Python venv and fetches Bitwarden's CLI (pinned
-version, checked against its SHA-256) into `%LOCALAPPDATA%\KeytapBuild`.
-`build_app.ps1` builds `dist\Keytap\Keytap.exe` with the CLI in
-`dist\Keytap\tools\bw\`, then runs it with `--self-test` to prove it starts.
+`bootstrap.ps1` makes a Python venv into `%LOCALAPPDATA%\KeytapBuild`. It also
+fetches Bitwarden's CLI and Microsoft's SDK build tools (makeappx and
+signtool), each pinned and checked against its SHA-256. `build_app.ps1` builds
+`dist\Keytap\Keytap.exe` with the CLI in `dist\Keytap\tools\bw\`.
+`make_package.py` then signs Keytap's package into `dist\Keytap\package\`.
+Finally the build runs the exe with `--self-test` to prove it starts.
+
+The package-signing certificate was made once with
+`build\make_package.py --make-key`. Its key is in `~\.keytap\release\` and must
+never be replaced: PCs that trust the certificate would refuse packages signed
+by a new one. Its public half is `build\package\Keytap.cer`.
 
 Run from source with `%LOCALAPPDATA%\KeytapBuild\venv\Scripts\python.exe app\main.py`.
 
-Tests: `tests\test_core.py` covers codes, sequences, matching and the vault
-(against a fake bw, and the real one for its signed-out answers).
+Tests:
+- `tests\test_core.py` covers codes, sequences, matching and the vault (against
+  a fake bw, and the real one for its signed-out answers).
+- `tests\test_passkeys.py` covers CBOR, P-256 signing (RFC 6979's vector) and
+  passkey answers, checked byte for byte against Windows' own encoder.
+- `tests\test_signins.py` runs the sign-in flow against stand-ins for Windows
+  and the person.
 `tests\type_test.py` drives the real thing with real keystrokes and clicks
 against a fake vault and test windows of its own, pop-up included. It waits
 for the PC to be idle for 20 seconds, won't start over a full-screen program,

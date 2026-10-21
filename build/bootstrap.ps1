@@ -6,6 +6,7 @@
 # stays small. Delete that folder any time; this script recreates it.
 #   venv\        Python venv with PySide6 and PyInstaller
 #   components\  bw\ - Bitwarden's CLI, bundled into the app beside Keytap.exe
+#                sdk\ - Microsoft's makeappx and signtool, which build Keytap's package
 # The script is idempotent: finished steps are skipped on re-run.
 
 param(
@@ -21,6 +22,8 @@ $Dl    = Join-Path $Cache 'downloads'
 $Venv  = Join-Path $Cache 'venv'
 $Comp  = Join-Path $Cache 'components'
 New-Item -ItemType Directory -Force $Dl, $Comp | Out-Null
+# Windows' own tar (bsdtar), which reads zips - not a Git tar that may come first on PATH.
+$Tar = Join-Path $env:SystemRoot 'System32\tar.exe'
 
 # Bitwarden's open-source build of its CLI (GPL-3.0, no Bitwarden-licensed
 # code), pinned to one release and checked against the digest GitHub lists for
@@ -28,6 +31,13 @@ New-Item -ItemType Directory -Force $Dl, $Comp | Out-Null
 #   gh api repos/bitwarden/clients/releases/tags/cli-v<version>
 $BwVersion = '2026.10.0'
 $BwSha256  = '2711c0e9527bbc88ecda4b884f4f1cff896e727cf6d7e82324dce2476fa1ef03'
+
+# Microsoft's Windows SDK build tools (makeappx, signtool), from its NuGet
+# package, for the small package that makes Keytap a passkey provider
+# (build\make_package.py). Pinned with the digest of the .nupkg.
+$SdkVersion = '10.0.28000.2705'
+$SdkBin     = 'bin/10.0.28000.0/x64'
+$SdkSha256  = '8bfdfb6ca2633f531cf80b5fa22512ba61a394d7988f0970db83baadc67929ed'
 
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 
@@ -69,9 +79,23 @@ if ($Part -in 'all', 'components') {
     if ($have -ne $BwVersion -or -not (Test-Path (Join-Path $bwDir 'bw.exe'))) {
         Remove-Item -Recurse -Force $bwDir -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Force $bwDir | Out-Null
-        & tar.exe -xf $zip -C $bwDir
+        & $Tar -xf $zip -C $bwDir
         if (-not (Test-Path (Join-Path $bwDir 'bw.exe'))) { Fail 'bw.exe not found in archive' }
         Set-Content -Path $stamp -Value $BwVersion -Encoding ascii
     }
     Write-Host "components ready (Bitwarden CLI $BwVersion)"
+
+    $nupkg = Join-Path $Dl "microsoft.windows.sdk.buildtools.$SdkVersion.nupkg"
+    Get-File "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/$SdkVersion/microsoft.windows.sdk.buildtools.$SdkVersion.nupkg" $nupkg $SdkSha256
+    $sdkDir = Join-Path $Comp 'sdk'
+    $stamp = Join-Path $sdkDir 'VERSION.txt'
+    $have = if (Test-Path $stamp) { (Get-Content -Raw $stamp).Trim() } else { '' }
+    if ($have -ne $SdkVersion) {
+        Remove-Item -Recurse -Force $sdkDir -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force (Join-Path $sdkDir 'pkg') | Out-Null
+        & $Tar -xf $nupkg -C (Join-Path $sdkDir 'pkg') $SdkBin
+        if (-not (Test-Path (Join-Path $sdkDir "pkg/$SdkBin/makeappx.exe"))) { Fail 'makeappx.exe not found in the SDK package' }
+        Set-Content -Path $stamp -Value $SdkVersion -Encoding ascii
+    }
+    Write-Host "components ready (SDK build tools $SdkVersion)"
 }

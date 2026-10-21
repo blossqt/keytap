@@ -14,6 +14,9 @@ hiddenimports = ['keytap', 'keytap.app', 'keytap.focus', 'comtypes', 'comtypes.c
 hiddenimports += ['keytap.hello', 'winrt.runtime', 'winrt.system', 'winrt.windows.foundation',
                   'winrt.windows.security.credentials', 'winrt.windows.security.cryptography',
                   'winrt.windows.storage.streams']
+# Passkeys: Windows calls Keytap's COM class (comtypes' local server) in the passkey modules.
+hiddenimports += ['keytap.provider', 'keytap.signins', 'keytap.passkeys', 'keytap.cbor', 'keytap.p256',
+                  'keytap.package', 'comtypes.server', 'comtypes.server.localserver']
 
 # Qt's plugins, named here rather than left to PyInstaller's Qt hook. The hook
 # drops any plugin whose Qt libraries it finds by a second path - and a build
@@ -68,6 +71,8 @@ exe = EXE(
     disable_windowed_traceback=False,
     icon=os.path.join(SPECPATH, 'keytap.ico'),
     version=os.path.join(SPECPATH, 'version_info.txt'),
+    # PyInstaller's manifest plus Keytap's package identity (see keytap.manifest).
+    manifest=os.path.join(SPECPATH, 'keytap.manifest'),
 )
 
 coll = COLLECT(
