@@ -474,7 +474,7 @@ class Controller(QObject):
         if not why:
             status['trusted'] = package.certificate_trusted()
             try:
-                status['registered'] = not package.needs_registering()
+                status['registered'] = status['identity'] or package.registered() is not None
             except package.SetupError:
                 pass
         if status['identity']:
@@ -537,7 +537,11 @@ class Controller(QObject):
         if self.passkey_server is None or not self.unlocked:
             return
         keys = [key for login in self.logins or [] for key in login.passkeys]
-        background.run(lambda: provider.sync_credentials(keys))
+
+        def done(_, error):
+            print(f'passkeys: {len(keys)} handed to Windows' if error is None else
+                  f'passkeys: Windows did not take the list: {error}', flush=True)
+        background.run(lambda: provider.sync_credentials(keys), done)
 
     def _load_folders(self) -> None:
         def done(folders, error):
@@ -926,6 +930,7 @@ class Controller(QObject):
             socket.write(reply.encode('utf-8'))
             socket.waitForBytesWritten(500)
         socket.disconnectFromServer()
+        socket.deleteLater()      # through Qt, so PySide forgets it too, rather than leaving it to the server
 
     def command(self, message: str) -> str:
         words = message.split()
@@ -947,7 +952,11 @@ class Controller(QObject):
                                'hotkey_problems': self.hotkey_problems, 'inline': self.inline.describe(),
                                'field': self.field.kind if self.field else '',
                                'watching': self.fields.running, 'watch_error': self.fields.failed,
-                               'vault_window': self._vault_window_state(), 'hello': self.hello_on()})
+                               'vault_window': self._vault_window_state(), 'hello': self.hello_on(),
+                               'passkeys': {'identity': provider.identity(), 'server': (
+                                   'off' if self.passkey_server is None else
+                                   self.passkey_server.failed or ('ok' if self.passkey_server.ready.is_set()
+                                                                  else 'starting'))}})
         elif DEV and words[0] == 'inline-point' and len(words) > 1:
             x, y = self.inline.row_point(int(words[1]))
             return f'{x} {y}'
@@ -959,6 +968,8 @@ class Controller(QObject):
             self.card.submitted.emit(message.split(' ', 1)[1])
         elif DEV and words[0] == 'hello-on':
             self.turn_on_hello()
+        elif DEV and words[0] == 'passkeys-cache':
+            return json.dumps(provider.cached_credentials())
         elif DEV and words[0] == 'reload':
             self.settings = Settings()
             self.apply_hotkeys()
@@ -1002,6 +1013,8 @@ def _log_to_file() -> None:
     folder.mkdir(parents=True, exist_ok=True)
     log = open(folder / 'keytap.log', 'a', encoding='utf-8', buffering=1)  # noqa: SIM115
     sys.stdout = sys.stderr = log
+    import faulthandler
+    faulthandler.enable(log)          # a crash inside a call from Windows leaves its stack here
 
 
 def self_test(argv: list[str]) -> int:

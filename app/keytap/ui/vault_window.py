@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QByteArray, QEvent, QMimeData, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPixmap,
-                           QShortcut, QTextOption)
+                           QShortcut, QTextDocument, QTextOption)
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton,
                                QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
@@ -90,7 +90,11 @@ class _Text(QTextEdit):
         policy.setHeightForWidth(True)          # its height follows its width, in the same layout pass
         self.setSizePolicy(policy)
         self.setViewportMargins(*margins)
-        self.document().setDocumentMargin(0)
+        # A document of its own, held here: asking Qt for the one a QTextEdit makes can hand back
+        # a stale Python wrapper for whatever object last lived at that address (seen: a QLocalSocket).
+        self._document = QTextDocument(self)
+        self.setDocument(self._document)
+        self._document.setDocumentMargin(0)
         self.setFont(font or theme.font(10.5))
         self.setText(text)
 
@@ -112,7 +116,7 @@ class _Text(QTextEdit):
     def heightForWidth(self, width: int) -> int:
         if width not in self._heights:
             margins = self.viewportMargins()
-            layout = self.document().clone()    # laid out at that width without disturbing the one shown
+            layout = self._document.clone()     # laid out at that width without disturbing the one shown
             layout.setDefaultFont(self.font())
             layout.setTextWidth(max(1, width - margins.left() - margins.right()))
             height = math.ceil(layout.size().height()) + margins.top() + margins.bottom()

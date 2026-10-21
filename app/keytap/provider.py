@@ -199,6 +199,20 @@ def sync_credentials(keys) -> None:
         raise OSError(hr & 0xffffffff, f'Windows would not take the list of passkeys ({hresult_text(hr)})')
 
 
+def cached_credentials() -> list[str]:
+    """The websites of the passkeys Windows has listed for Keytap (for tests)."""
+    dll = _dll()
+    count, array = w.DWORD(), POINTER(_CredentialDetails)()
+    hr = dll.WebAuthNPluginAuthenticatorGetAllCredentials(byref(_GUID.of(CLSID)), byref(count), byref(array))
+    if hr:
+        return [f'error {hresult_text(hr)}']
+    try:
+        return [array[i].pwszRpId for i in range(count.value)]
+    finally:
+        if array:
+            dll.WebAuthNPluginAuthenticatorFreeCredentialDetailsArray(count, array)
+
+
 def forget_credentials() -> None:
     try:
         _dll().WebAuthNPluginAuthenticatorRemoveAllCredentials(byref(_GUID.of(CLSID)))
@@ -344,10 +358,14 @@ def _server_classes(handler):
         _reg_clsctx_ = comtypes.CLSCTX_LOCAL_SERVER
 
         def MakeCredential(self, this, request, response):
-            return answer_into(response, handler.make_credential, request)
+            hr = answer_into(response, handler.make_credential, request)
+            print(f'passkeys: MakeCredential -> {hresult_text(hr)}', flush=True)
+            return hr
 
         def GetAssertion(self, this, request, response):
-            return answer_into(response, handler.get_assertion, request)
+            hr = answer_into(response, handler.get_assertion, request)
+            print(f'passkeys: GetAssertion -> {hresult_text(hr)}', flush=True)
+            return hr
 
         def CancelOperation(self, this, request):
             try:
@@ -358,6 +376,7 @@ def _server_classes(handler):
             return S_OK
 
         def GetLockStatus(self, this, status):
+            print('passkeys: GetLockStatus', flush=True)
             try:
                 if status:
                     status[0] = 1 if handler.unlocked() else 0       # PluginUnlocked, PluginLocked
@@ -403,6 +422,7 @@ class Server:
             self.failed = str(error)
             self.ready.set()
             return
+        print(f'passkeys: serving {CLSID} as {identity() or "no package"}', flush=True)
         self.ready.set()
         self._stop.wait()
         try:

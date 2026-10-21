@@ -20,8 +20,12 @@ function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 if (-not (Test-Path $Py)) { Fail "venv missing - run build\bootstrap.ps1 first" }
 # PyInstaller empties dist\Keytap first and stops at the first file in use,
 # which leaves a running copy with half its files gone.
-$Running = Get-Process -Name Keytap -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path -like (Join-Path $Dist '*') }
+# By its path in Windows' process list: Get-Process can't read the path of a Keytap
+# Windows started inside its package container (for a passkey), and a check that
+# missed one once left that Keytap without its Bitwarden CLI.
+$Exe = Join-Path $Dist 'Keytap.exe'
+$Running = Get-CimInstance Win32_Process -Filter "Name='Keytap.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { "$($_.ExecutablePath)|$($_.CommandLine)" -like "*$Exe*" }
 if ($Running) { Fail "Keytap is running from $Dist - quit it from the tray first" }
 if (-not (Test-Path (Join-Path $Comp 'bw\bw.exe'))) { Fail "Bitwarden CLI missing - run build\bootstrap.ps1 first" }
 

@@ -84,6 +84,7 @@ class PasskeySignIns(QObject):
 
     def get_assertion(self, op) -> bytes:
         if not provider.from_windows(op.data, op.signature):
+            print('passkeys: a request not signed by Windows - refused', flush=True)
             raise Refusal(provider.E_ACCESSDENIED, 'a passkey request Windows did not sign')
         try:
             request = passkeys.Request.parse(op.data)

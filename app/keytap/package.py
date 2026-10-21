@@ -178,14 +178,21 @@ def unregister() -> None:
 
 
 def needs_registering() -> bool:
-    """Whether Windows' copy of the package is missing, for another folder, or older than this one's."""
+    """Whether this Keytap must register its package: it is missing, or for another folder.
+
+    Windows doesn't say which folder a package with an external location points
+    at (its InstallLocation is a WindowsApps folder of its own), but it gives the
+    identity to Keytap.exe only in that folder - so a Keytap running without it
+    has no package for its own folder."""
+    from . import provider
+    return not provider.identity()
+
+
+def outdated() -> bool:
+    """Whether Windows has an older package than the one beside Keytap.exe (re-registering it
+    closes the Keytap running as it, so that waits for Keytap to be quit and started again)."""
     current = registered()
-    if current is None:
-        return True
-    here = folder()
-    if here and current['location'] and Path(current['location']).resolve() != here.resolve():
-        return True
-    return _version(current['version']) < _version(bundled_version())
+    return current is not None and _version(current['version']) < _version(bundled_version())
 
 
 def _version(text: str) -> tuple:
