@@ -206,6 +206,54 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual([m.strength for m in matching.find(claude, [steam], {}, 'https://steamcommunity.com/login')],
                          ['page'])
 
+    def test_match_detection_set_in_bitwarden(self):
+        claude = window('claude.exe', 'Claude')
+
+        def on(page, *logins):
+            return sorted(m.login.id for m in matching.find(claude, list(logins), {}, page) if m.strength == 'page')
+        base = Login('b', 'GitHub', 'me', 'x', uris=('https://github.com',))
+        never = Login('n', 'GitHub old', 'old', 'x', uris=('https://github.com',), uri_match=(matching.NEVER,))
+        host = Login('h', 'Gist', 'g', 'x', uris=('https://gist.github.com',), uri_match=(matching.HOST,))
+        starts = Login('s', 'Enterprise', 'e', 'x', uris=('https://github.com/enterprises/acme',),
+                       uri_match=(matching.STARTS_WITH,))
+        exact = Login('e', 'Exact', 'x', 'x', uris=('https://github.com/login',), uri_match=(matching.EXACT,))
+        regex = Login('r', 'Regex', 'r', 'x', uris=(r'^https://(www\.)?github\.com/log',), uri_match=(matching.REGEX,))
+        everyone = (base, never, host, starts, exact, regex)
+        self.assertEqual(on('https://github.com/login', *everyone), ['b', 'e', 'r'])
+        self.assertEqual(on('https://gist.github.com/auth', *everyone), ['b', 'h'])
+        self.assertEqual(on('https://github.com/enterprises/acme/sso', *everyone), ['b', 's'])
+        self.assertEqual(on('https://github.com/login?return_to=x', *everyone), ['b', 'r'], 'exact is exact')
+        broken = Login('x', 'Broken', 'x', 'x', uris=('([',), uri_match=(matching.REGEX,))
+        self.assertEqual(on('https://github.com/', broken), [], 'a broken expression matches nothing')
+        # Never also keeps a login out of "the same website" and the hints.
+        w = window('steamwebhelper.exe', 'Sign in to Steam')
+        mine = Login('v', 'store.steampowered.com', 'v', 'x', uris=('https://store.steampowered.com',))
+        hidden = Login('o', 'Steam alt', 'o', 'y', uris=('https://store.steampowered.com',),
+                       uri_match=(matching.NEVER,))
+        found = matching.find(w, [mine, hidden], {'steamwebhelper.exe': 'v'})
+        self.assertEqual([(m.login.id, m.strength) for m in found], [('v', 'linked')], 'not another account there')
+        # From the vault: each address's setting, in step with the addresses.
+        item = {'type': 1, 'id': 'i', 'name': 'n', 'login': {'uris': [
+            {'uri': 'https://a.example.com', 'match': 1}, {'uri': 'https://b.example.com', 'match': None},
+            {'uri': ''}, {'uri': 'app://x.exe', 'match': 5}]}}
+        login = Login.from_item(item)
+        self.assertEqual(login.uris, ('https://a.example.com', 'https://b.example.com', 'app://x.exe'))
+        self.assertEqual(login.uri_match, (1, None, 5))
+
+    def test_websites_that_share_one_account(self):
+        claude = window('claude.exe', 'Claude')
+        google = Login('g', 'Google', 'me', 'x', uris=('https://accounts.google.com',))
+        riot = Login('r', 'Riot', 'me', 'x', uris=('https://auth.riotgames.com',))
+        xbox = Login('m', 'Microsoft', 'me', 'x', uris=('https://login.live.com',))
+        logins = [google, riot, xbox]
+        for page, wanted in (('https://www.youtube.com/signin', 'g'), ('https://playvalorant.com/en-us/', 'r'),
+                             ('https://www.xbox.com/en-US/auth/msa', 'm'), ('https://www.minecraft.net/login', 'm')):
+            self.assertEqual([m.login.id for m in matching.find(claude, logins, {}, page) if m.strength == 'page'],
+                             [wanted], page)
+        # Only for base-domain matching, as in Bitwarden.
+        exact = Login('e', 'Google', 'me', 'x', uris=('https://accounts.google.com',), uri_match=(matching.HOST,))
+        self.assertEqual(matching.find(claude, [exact], {}, 'https://www.youtube.com/signin'), [])
+
     def test_pages_a_program_serves_itself(self):
         # Steam draws its own screens as web pages from steamloopback.host: the program decides, as before.
         w = window('steamwebhelper.exe', 'Sign in to Steam')

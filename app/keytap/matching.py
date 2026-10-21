@@ -8,8 +8,10 @@ A login is tied to a program in one of these ways, strongest first:
   contains that text (* and ? as wildcards);
 - the web page: for a box on a web page inside a program (an app's built-in
   browser, or an app made of web pages, like Discord), saved for that page's
-  website, as Bitwarden's extension matches logins in a browser. A page the
-  program serves itself (Steam's own screens, say) counts as no page;
+  website, as Bitwarden's extension matches logins in a browser - by each
+  address's match detection there (base domain, host, starts with, exact,
+  regular expression; an address set to never match counts nowhere). A page
+  the program serves itself (Steam's own screens, say) counts as no page;
 - the same website: saved for the website of a login tied the first or second
   way - another account there. Steam's sign-in window is steamwebhelper.exe
   and its logins are saved for steampowered.com, so remembering one of them
@@ -37,11 +39,31 @@ from urllib.parse import urlparse
 LINKED, URI, PAGE, SITE, HINT = 'linked', 'uri', 'page', 'site', 'hint'
 _ORDER = {LINKED: 0, URI: 1, PAGE: 2, SITE: 3, HINT: 4}
 
-# Websites that are one account under several names, as Bitwarden's own
-# equivalent domains have them.
-_SAME_SITES = (
-    frozenset({'steampowered.com', 'steamcommunity.com', 'steamgames.com'}),
-)
+# Bitwarden's match detection, set per address on a login. None is the default:
+# the base domain, which is also what Bitwarden's apps use unless told otherwise.
+DOMAIN, HOST, STARTS_WITH, EXACT, REGEX, NEVER = 0, 1, 2, 3, 4, 5
+
+# Websites that are one account under several names, like Bitwarden's
+# equivalent domains. They count only for base-domain matching, as there.
+_SAME_SITES = tuple(frozenset(group) for group in (
+    {'steampowered.com', 'steamcommunity.com', 'steamgames.com'},
+    {'google.com', 'youtube.com', 'gmail.com', 'google.co.uk', 'google.ca', 'google.com.au', 'google.de',
+     'google.fr'},
+    {'microsoft.com', 'live.com', 'outlook.com', 'hotmail.com', 'office.com', 'xbox.com', 'skype.com', 'bing.com',
+     'msn.com', 'onedrive.com', 'minecraft.net'},
+    {'apple.com', 'icloud.com'},
+    {'amazon.com', 'amazon.co.uk', 'amazon.ca', 'amazon.de', 'amazon.fr', 'amazon.it', 'amazon.es', 'amazon.co.jp',
+     'amazon.com.au', 'amazon.in'},
+    {'riotgames.com', 'leagueoflegends.com', 'playvalorant.com', 'lolesports.com'},
+    {'epicgames.com', 'unrealengine.com', 'fortnite.com'},
+    {'battle.net', 'blizzard.com'},
+    {'ea.com', 'origin.com'},
+    {'ubisoft.com', 'ubi.com'},
+    {'playstation.com', 'sony.com', 'sonyentertainmentnetwork.com'},
+    {'discord.com', 'discordapp.com'},
+    {'twitter.com', 'x.com'},
+    {'facebook.com', 'messenger.com'},
+))
 
 # Browsers have Bitwarden's own extension for this; Keytap's pop-up stays out of them.
 BROWSERS = {
@@ -193,10 +215,48 @@ def _also(site: str) -> set[str]:
     return set(next((group for group in _SAME_SITES if site in group), {site}))
 
 
+def _rules(login) -> list[tuple[str, int | None]]:
+    """A login's addresses, each with its match detection - leaving out those set to never match."""
+    kinds = tuple(getattr(login, 'uri_match', ()) or ())
+    pairs = [(uri, kinds[i] if i < len(kinds) else None) for i, uri in enumerate(login.uris)]
+    return [(uri, kind) for uri, kind in pairs if kind != NEVER]
+
+
+def _host(uri: str) -> str:
+    """'github.com' or 'example.com:8443' - the host and any port, as Bitwarden's host matching
+    compares them."""
+    try:
+        parsed = urlparse(uri if '://' in uri else f'http://{uri}')
+        host = (parsed.hostname or '').lower()
+        return f'{host}:{parsed.port}' if host and parsed.port else host
+    except ValueError:
+        return ''
+
+
+def address_matches(uri: str, kind: int | None, page: str, page_sites: set[str]) -> bool:
+    """Whether one of a login's addresses goes with a web page, by the rule set for it in
+    Bitwarden. page_sites: the page's website, with the names it also goes by."""
+    if kind == NEVER:
+        return False
+    if kind == HOST:
+        return bool(_host(uri)) and _host(uri) == _host(page)
+    if kind == STARTS_WITH:
+        return page.startswith(uri)
+    if kind == EXACT:
+        return page == uri
+    if kind == REGEX:
+        try:
+            return re.search(uri, page, re.IGNORECASE) is not None
+        except re.error:
+            return False
+    site = site_of(uri)                 # the base domain: the default
+    return bool(site) and site in page_sites
+
+
 def _sites(login) -> set[str]:
     """The websites a login is saved for, each with the names it also goes by."""
     found = set()
-    for uri in login.uris:
+    for uri, _ in _rules(login):
         site = site_of(uri)
         if site:
             found |= _also(site)
@@ -212,7 +272,7 @@ def hints_at(login, window, page: str = '') -> bool:
         # On a web page the program says nothing: it could be showing any website.
         name = _site_name(page)
         return len(name) >= 4 and (_word_in(name, login.name.lower()) or any(
-            _site_name(uri) == name for uri in login.uris if _is_web(uri)))
+            _site_name(uri) == name for uri, _ in _rules(login) if _is_web(uri)))
     title = window.title.lower()
     stem = PureWindowsPath(window.exe).stem.lower() if window.exe else ''
     name = login.name.strip().lower()
@@ -220,7 +280,7 @@ def hints_at(login, window, page: str = '') -> bool:
         return True
     if len(stem) >= 4 and _word_in(stem, name):     # "Steam (alt)" for steam.exe
         return True
-    for uri in login.uris:
+    for uri, _ in _rules(login):
         if _is_web(uri):
             site = _site_name(uri)
             if len(site) >= 4 and (site == stem or _word_in(site, title)):
@@ -244,9 +304,9 @@ def find(window, logins, links: dict[str, str], page: str = '') -> list[Match]:
     for login in logins:
         if linked_id and login.id == linked_id:
             strength[login.id] = LINKED
-        elif any(uri_matches(uri, window) for uri in login.uris):
+        elif any(uri_matches(uri, window) for uri, _ in _rules(login)):
             strength[login.id] = URI
-        elif on_page and _sites(login) & on_page:
+        elif on_page and any(address_matches(uri, kind, page, on_page) for uri, kind in _rules(login)):
             strength[login.id] = PAGE
     # Other accounts on the websites of the logins tied to this program.
     sites = set().union(*(_sites(login) for login in logins if login.id in strength))

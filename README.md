@@ -117,6 +117,14 @@ Keytap types without asking only when it is sure:
   login saved for that website, as Bitwarden's extension would fill it. Keytap
   sees which page the box is on while the pop-up in login boxes is on.
 
+Websites follow the match detection set on each address in Bitwarden: the
+base domain unless you chose host, starts with, exact or a regular expression.
+An address set to *Never* is never matched. Websites that are one account
+count as one, like Bitwarden's equivalent domains: Google and YouTube;
+Microsoft, Xbox and Minecraft; Riot's games; Steam's sites; and a few more.
+Keytap keeps its own list of these, because Bitwarden's command-line tool
+doesn't share the ones in your account.
+
 Otherwise Keytap suggests logins whose name or website matches the program or
 window title, and lets you choose. It never types a guess: a password typed
 into the wrong window could end up in a chat box.
