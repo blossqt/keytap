@@ -430,3 +430,24 @@ class Server:
         except OSError:
             pass
         ole32.CoUninitialize()
+
+
+IID_IUNKNOWN = uuid.UUID('00000000-0000-0000-c000-000000000046')
+CLSCTX_LOCAL_SERVER = 4
+
+
+def start_server() -> bool:
+    """Have COM start Keytap as the package's COM server - inside the package's container, as
+    Windows starts it for a passkey - and wait until it serves. Windows calls only a Keytap started
+    that way, never one started from its exe, and keeps calling the one that runs."""
+    ole32 = ctypes.WinDLL('ole32')
+    ole32.CoInitializeEx(None, 2)               # COINIT_APARTMENTTHREADED, unless this thread has COM already
+    unknown = c_void_p()
+    hr = ole32.CoCreateInstance(byref(_GUID.of(CLSID)), None, CLSCTX_LOCAL_SERVER,
+                                byref(_GUID.of(IID_IUNKNOWN)), byref(unknown))
+    if hr < 0 or not unknown:
+        print(f'passkeys: COM would not start Keytap ({hresult_text(hr)})', flush=True)
+        return False
+    release = ctypes.cast(unknown, POINTER(POINTER(c_void_p)))[0][2]      # IUnknown::Release
+    ctypes.WINFUNCTYPE(ctypes.c_ulong, c_void_p)(release)(unknown)
+    return True

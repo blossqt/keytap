@@ -7,13 +7,14 @@ account when there are several, and asks for the master password for a login
 that wants it again. Back on COM's thread, Windows Hello checks it is you -
 unless you have just unlocked Keytap for this - and the passkey signs.
 
-There is only ever one Keytap with the vault. Windows starts a Keytap of its
-own for a passkey request (inside the package's container), and won't use one
-started otherwise. With none running, that one becomes Keytap. With one
-running, the one Windows started only relays (Relay, below): it passes each
-call to the running Keytap over Keytap's local socket, and that Keytap -
-which checks Windows signed the request, as for a call from COM - answers.
-The relay quits once idle.
+There is only ever one Keytap with the vault. Windows calls only a Keytap that
+COM started, inside the package's container, never one started from its exe.
+So with passkeys set up, a Keytap started from its exe has COM start that one
+and hands over to it (app.hand_over), and Windows keeps calling the one that
+runs. Should a Keytap from the exe run anyway, the one Windows starts only
+relays (Relay, below): it passes each call to the running Keytap over Keytap's
+local socket, and that Keytap - which checks Windows signed the request, as
+for a call from COM - answers.
 """
 
 from __future__ import annotations
@@ -27,14 +28,14 @@ import traceback
 import uuid
 from types import SimpleNamespace
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import passkeys, provider
 from .provider import Refusal
 from .ui.accounts import AccountCard
 
 WAIT_SECONDS = 300          # as long as Windows' own passkey window waits
-RELAY_IDLE_SECONDS = 120    # a relay with nothing to pass on quits after this long
+STARTING_SECONDS = 30       # how long a request waits on a Keytap that is still reaching Bitwarden
 PIPE_PREFIX = '\\\\.\\pipe\\'   # where Qt's QLocalServer listens on Windows
 _NO_CREATING = ("Keytap signs in with the passkeys in your vault but does not save new ones. Save this one with "
                 "Bitwarden's browser extension or app, or choose another place in Windows' passkey window.")
@@ -48,6 +49,7 @@ class _Job:
         self.refusal: Refusal | None = None
         self.cancelled = False
         self.card = None
+        self.started = time.monotonic()
         self._done = threading.Event()
 
     @property
@@ -210,8 +212,16 @@ class PasskeySignIns(QObject):
 
     def _start(self, job: _Job) -> None:
         c = self.controller
-        if c.status.state not in ('locked', 'unlocked'):
-            c.toasts.show('Passkeys', 'Sign Keytap in to Bitwarden first.', error=True)
+        if job.cancelled:
+            return
+        if c.status.state == 'checking' and time.monotonic() - job.started < STARTING_SECONDS:
+            # Windows may have started Keytap for this very request: wait until it knows where
+            # Bitwarden stands, rather than turn the request away.
+            QTimer.singleShot(200, lambda: self._start(job))
+        elif c.status.state not in ('locked', 'unlocked'):
+            c.toasts.show('Passkeys', {'missing': "Bitwarden's command-line tool is missing - reinstall Keytap.",
+                                       'checking': 'Keytap could not reach Bitwarden.'}.get(
+                                           c.status.state, 'Sign Keytap in to Bitwarden first.'), error=True)
             job.refuse(provider.NTE_NOT_FOUND)
         elif c.card is not None:
             c.card.bring_back()
@@ -278,10 +288,10 @@ class Relay:
     def __init__(self, server_name: str):
         self._name = server_name
         self._busy = 0
-        self._last = time.monotonic()
 
-    def idle_seconds(self) -> float:
-        return 0.0 if self._busy else time.monotonic() - self._last
+    @property
+    def busy(self) -> bool:
+        return self._busy > 0
 
     def _call(self, message: str, json_reply: bool = False) -> str | None:
         """Send one message to the running Keytap and read its answer. Through the named pipe its
@@ -316,7 +326,6 @@ class Relay:
             return data.decode('utf-8', 'replace')
         finally:
             self._busy -= 1
-            self._last = time.monotonic()
 
     def get_assertion(self, op) -> bytes:
         # Windows let this process come to the front; pass that on, for the running Keytap's cards.

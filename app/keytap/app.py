@@ -29,7 +29,7 @@ from . import (APP_NAME, __version__, background, focus, hello, matching, packag
 from .focus import FieldWatcher
 from .hotkeys import Hotkeys, SessionWatcher
 from .settings import Settings
-from .signins import RELAY_IDLE_SECONDS, PasskeySignIns, Relay
+from .signins import PasskeySignIns, Relay
 from .suitetray import SuiteTray
 from .vault import Bitwarden, Login, NotSignedIn, Status
 from .ui import icons, theme
@@ -108,8 +108,8 @@ class Controller(QObject):
         self.fields = FieldWatcher(self._field_wanted, self)
         self.fields.field.connect(self._field_changed)
         # Passkeys: only with the package identity Windows asks of passkey providers (see package.py).
-        # Windows calls only a Keytap it started itself (serve_passkeys); any other gets its calls
-        # through a relay (signins.Relay), over the local socket.
+        # Windows calls only a Keytap COM started (serve_passkeys; see hand_over); any other gets
+        # its calls through a relay (signins.Relay), over the local socket.
         self.signins = PasskeySignIns(self)
         self.passkeys_on = bool(provider.identity()) and provider.supported()
         self.passkey_server = None
@@ -1025,15 +1025,31 @@ def send(message: str, reply: bool = False) -> str | None:
     return answer
 
 
+def hand_over(message: str) -> bool:
+    """With passkeys set up, the Keytap that runs is one COM started, inside Keytap's package: the
+    only kind Windows calls for a passkey, and it keeps calling the one that runs. So a Keytap
+    started from its exe (from Start, with Windows, by Hanami) has COM start that one, passes on
+    what it was started for, and leaves. False when it can't: then it is Keytap itself."""
+    if DEV or not getattr(sys, 'frozen', False) or not provider.identity() or not provider.supported():
+        return False
+    if not provider.start_server():
+        return False
+    deadline = time.monotonic() + 20       # it serves COM a moment before its local socket listens
+    while send(message) is None and time.monotonic() < deadline:
+        time.sleep(0.2)
+    return True
+
+
 def run_relay(app) -> int:
-    """Serve Windows' passkey calls by passing them to the Keytap that runs, until idle."""
+    """Serve Windows' passkey calls by passing them to the Keytap that runs, for as long as it
+    runs: Windows was seen to end that Keytap too when the one it started for a passkey ended."""
     relay = Relay(SERVER_NAME)
     server = provider.Server(relay)
     server.start()
     print('passkeys: relaying to the running Keytap', flush=True)
-    idle = QTimer(interval=5000)
-    idle.timeout.connect(lambda: app.quit() if relay.idle_seconds() > RELAY_IDLE_SECONDS else None)
-    idle.start()
+    alive = QTimer(interval=5000)
+    alive.timeout.connect(lambda: app.quit() if not relay.busy and send('ping') is None else None)
+    alive.start()
     return app.exec()
 
 
@@ -1129,6 +1145,8 @@ def main(argv: list[str] | None = None) -> int:
     if '--send' in argv:
         print('Keytap is not running', file=sys.stderr)
         return 1
+    if '-Embedding' not in argv and hand_over(message):
+        return 0
 
     controller = Controller(startup=quiet, serve_passkeys='-Embedding' in argv)  # noqa: F841 - lives on
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())

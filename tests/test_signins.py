@@ -145,6 +145,19 @@ class SignInTests(unittest.TestCase):
         person.answers['unlock'] = False
         self.assertEqual(self.sign_in(person)[1], provider.NTE_USER_CANCELLED)
 
+    def test_waits_for_a_keytap_still_starting(self):
+        # Windows started Keytap for this very request: it doesn't know yet where Bitwarden stands.
+        person = Person([login('a', 'GitHub', 'blossqt')], unlocked=False)
+        person.status.state = 'checking'
+        QTimer.singleShot(400, lambda: setattr(person.status, 'state', 'locked'))
+        answer, refusal = self.sign_in(person)
+        self.assertIsNone(refusal)
+        self.assertEqual(person.asked, [('unlock', 'to sign in to github.com with a passkey')])
+        person = Person([login('a', 'GitHub', 'blossqt')])
+        person.status.state = 'unauthenticated'
+        self.assertEqual(self.sign_in(person)[1], provider.NTE_NOT_FOUND)
+        self.assertEqual(person.asked, [('toast', 'Sign Keytap in to Bitwarden first.')])
+
     def test_several_accounts_choose_one(self):
         person = Person([login('a', 'GitHub', 'blossqt'), login('b', 'GitHub (work)', 'work-account')])
         person.answers['choose'] = 1
@@ -264,6 +277,47 @@ class RelayTests(unittest.TestCase):
         self.assertEqual(self.through_relay(lambda relay: relay.get_assertion(self.op), cancel_after=0.3)[1],
                          provider.NTE_USER_CANCELLED)
         self.assertEqual(signins.Relay('keytap-nobody-here').unlocked(), False, 'no Keytap: locked, not stuck')
+
+
+class HandOverTests(unittest.TestCase):
+    """A Keytap started from its exe, with passkeys set up, has COM start the Keytap Windows calls."""
+
+    def setUp(self):
+        from keytap import app as keytap_app
+        self.app = keytap_app
+        self.started, self.sent = [], []
+        self.answering_after = 2                 # COM's Keytap listens a moment after it serves
+        self._patched = (provider.identity, provider.supported, provider.start_server, keytap_app.send,
+                         keytap_app.DEV, getattr(sys, 'frozen', None))
+        provider.identity = lambda: 'Blossqt.Keytap_test'
+        provider.supported = lambda: True
+        provider.start_server = lambda: self.started.append(True) or True
+
+        def send(message, reply=False):
+            self.sent.append(message)
+            return '' if len(self.sent) > self.answering_after else None
+        keytap_app.send = send
+        keytap_app.DEV = False
+        sys.frozen = True
+
+    def tearDown(self):
+        (provider.identity, provider.supported, provider.start_server, self.app.send,
+         self.app.DEV, frozen) = self._patched
+        if frozen is None:
+            del sys.frozen
+
+    def test_hands_over_and_passes_the_message_on(self):
+        self.assertTrue(self.app.hand_over('show'))
+        self.assertEqual(self.started, [True])
+        self.assertEqual(self.sent, ['show'] * 3)
+
+    def test_keytap_itself_when_it_cannot(self):
+        provider.start_server = lambda: False
+        self.assertFalse(self.app.hand_over('show'))
+        provider.identity = lambda: ''                       # passkeys not set up
+        provider.start_server = lambda: self.fail('COM asked without a package')
+        self.assertFalse(self.app.hand_over('show'))
+        self.assertEqual(self.sent, [])
 
 
 if __name__ == '__main__':
