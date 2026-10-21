@@ -1148,8 +1148,8 @@ def main(argv: list[str] | None = None) -> int:
     if '--send' in argv:
         print('Keytap is not running', file=sys.stderr)
         return 1
-    if '-Embedding' not in argv and hand_over(message):
-        return 0
+    # Not hand_over(message): Windows ends a Keytap COM starts while one started from the exe runs,
+    # and that one with it - so for now each Keytap stays the one it was started as.
 
     controller = Controller(startup=quiet, serve_passkeys='-Embedding' in argv)  # noqa: F841 - lives on
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())
