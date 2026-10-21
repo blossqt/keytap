@@ -16,6 +16,11 @@ made of web pages, like Discord - also says which page: Chromium gives each
 page's document its address as its value. Keytap then goes by that website,
 as Bitwarden's extension would in a browser.
 
+Before typing after one of Keytap's own cards had the keyboard (the picker, an
+unlock), the box it came from gets it back, and Keytap types only once that
+box has it. Some programs put the keyboard elsewhere on coming back: Claude's
+desktop app puts it on its own page rather than in the box in its browser.
+
 The UI Automation calls run on a thread of their own (COM's multithreaded
 apartment), since another program can take its time answering.
 """
@@ -23,9 +28,11 @@ apartment), since another program can take its time answering.
 from __future__ import annotations
 
 import ctypes
+import itertools
 import queue
 import sys
 import threading
+import time
 import traceback
 from collections.abc import Callable
 from ctypes import wintypes
@@ -49,6 +56,8 @@ UIA_DOCUMENT, UIA_PANE, UIA_CUSTOM, UIA_GROUP = 50030, 50033, 50025, 50026
 TREE_SCOPE_DESCENDANTS = 4
 _ANCESTORS_TO_SEARCH = 3        # how far up from a text box to look for its password box
 _NOT_LOGIN_WORDS = ('search', 'find', 'filter', 'chat', 'message', 'comment', 'url', 'address')
+# ...unless it says it is for signing in: "Username or email address" is a login box.
+_LOGIN_WORDS = ('user', 'email', 'e-mail', 'login', 'log in', 'sign in', 'account', 'phone')
 _CHROMIUM_CLASSES = ('Chrome_RenderWidgetHostHWND', 'Chrome_WidgetWin_1', 'Chrome_WidgetWin_0')
 
 WINEVENTPROC = ctypes.WINFUNCTYPE(None, wintypes.HANDLE, wintypes.DWORD, wintypes.HWND, wintypes.LONG,
@@ -102,6 +111,13 @@ def _automation():
     return automation, automation.CreatePropertyCondition(UIA_IS_PASSWORD_PROPERTY, True)
 
 
+def is_login_name(words: str) -> bool:
+    """Whether a text box's name and id leave it possibly a login box: not a search, chat or
+    address box - unless it also says it is for signing in."""
+    words = words.lower()
+    return any(word in words for word in _LOGIN_WORDS) or not any(word in words for word in _NOT_LOGIN_WORDS)
+
+
 def page_address(automation, element) -> str:
     """The address of the web page a box is on, or '' if it is not on one.
 
@@ -145,6 +161,7 @@ def probe() -> str:
 
 class _Relay(QObject):
     found = Signal(int, object)         # generation, LoginField or None
+    answered = Signal(int, object)      # a hold or give-back request's number, and its answer
 
 
 class FieldWatcher(QObject):
@@ -161,21 +178,27 @@ class FieldWatcher(QObject):
         self._requests: queue.Queue = queue.Queue()
         self._relay = _Relay()
         self._relay.found.connect(self._found)
+        self._relay.answered.connect(self._reply)
         self._settle = QTimer(self, singleShot=True, interval=80)
         self._settle.timeout.connect(self._ask)
         self._thread: threading.Thread | None = None
         self._last: LoginField | None = None       # the latest answer, while nothing has moved since
         self._answered = -1
+        self._waiting: dict[int, Callable] = {}    # hold and give-back requests, by number
+        self._numbers = itertools.count(1)
         self.failed = ''
 
     # ------------------------------------------------------------------ on and off
 
-    def start(self) -> None:
-        if self._hooks:
-            return
+    def _ensure_thread(self) -> None:
         if self._thread is None:
             self._thread = threading.Thread(target=self._work, name='keytap-uia', daemon=True)
             self._thread.start()
+
+    def start(self) -> None:
+        if self._hooks:
+            return
+        self._ensure_thread()
         for event in (EVENT_SYSTEM_FOREGROUND, EVENT_OBJECT_FOCUS):
             hook = win32.user32.SetWinEventHook(event, event, None, self._proc, 0, 0,
                                                 WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS)
@@ -203,6 +226,36 @@ class FieldWatcher(QObject):
             return None
         return field
 
+    # ------------------------------------------------------------------ handing the keyboard back
+
+    def hold(self, window, then: Callable[[], None]) -> None:
+        """Note which box in this window has the keyboard, before a card of Keytap's takes it,
+        so give_back can return it to that same box. then() runs once it is noted."""
+        self._request('hold', window, lambda _: then(), wait_ms=700, fallback=None)
+
+    def give_back(self, window, then: Callable[[bool], None]) -> None:
+        """Hand the keyboard back to the box hold() noted in this window (the window is already in
+        front), and say whether that box has it. then(False) if the box is gone or the keyboard
+        went elsewhere: Claude's app, say, puts it on its own page rather than back in the box
+        in its browser, and typing there would send a password to the wrong place."""
+        self._request('give', window, then, wait_ms=3000, fallback=False)
+
+    def _request(self, kind: str, window, then, wait_ms: int, fallback) -> None:
+        if self.failed:                 # no UI Automation here at all: nothing to note or check
+            QTimer.singleShot(0, lambda: then(None if kind == 'hold' else True))
+            return
+        self._ensure_thread()
+        number = next(self._numbers)
+        self._waiting[number] = then
+        self._requests.put((kind, number, window))
+        # A program slow to answer - or UI Automation turned out not to start, and can't check.
+        QTimer.singleShot(wait_ms, lambda: self._reply(number, True if kind == 'give' and self.failed else fallback))
+
+    def _reply(self, number: int, answer) -> None:
+        then = self._waiting.pop(number, None)
+        if then is not None:
+            then(answer)
+
     def recheck(self) -> None:
         """Look at whatever has the keyboard now (after unlocking, say)."""
         hwnd = win32.user32.GetForegroundWindow()
@@ -228,7 +281,7 @@ class FieldWatcher(QObject):
 
     def _ask(self) -> None:
         if self._target is not None:
-            self._requests.put((self._generation, self._target, 0))
+            self._requests.put(('look', self._generation, self._target, 0))
 
     def _found(self, generation: int, field) -> None:
         if generation == self._generation and self._hooks:
@@ -245,10 +298,21 @@ class FieldWatcher(QObject):
             self.failed = str(error)
             return
 
+        held = None                 # (hwnd, element): the box a card of Keytap's took the keyboard from
         while True:
-            generation, window, attempt = self._requests.get()
-            while not self._requests.empty():           # only the latest matters
-                generation, window, attempt = self._requests.get()
+            requests = [self._requests.get()]
+            while not self._requests.empty():
+                requests.append(self._requests.get())
+            for kind, number, window in (r for r in requests if r[0] != 'look'):     # in order
+                if kind == 'hold':
+                    held = self._hold(automation, window)
+                    self._relay.answered.emit(number, None)
+                else:
+                    self._relay.answered.emit(number, self._give(automation, window, held))
+            looks = [r for r in requests if r[0] == 'look']
+            if not looks:
+                continue
+            _, generation, window, attempt = looks[-1]      # only the latest matters
             try:
                 field, retry = self._inspect(automation, password_box, window)
             except Exception:  # noqa: BLE001 - the program went away, or would not answer
@@ -256,9 +320,37 @@ class FieldWatcher(QObject):
             if retry and attempt == 0:
                 # A Chromium app builds its accessibility tree only when first
                 # asked, so the first answer can be the page rather than the box.
-                threading.Timer(0.5, lambda g=generation, w=window: self._requests.put((g, w, 1))).start()
+                threading.Timer(0.5, lambda g=generation, w=window: self._requests.put(('look', g, w, 1))).start()
                 continue
             self._relay.found.emit(generation, field)
+
+    @staticmethod
+    def _hold(automation, window):
+        try:
+            element = automation.GetFocusedElement()
+            if element and element.CurrentProcessId == window.pid:
+                return window.hwnd, element
+        except Exception:  # noqa: BLE001 - the program went away, or would not answer
+            pass
+        return None
+
+    @staticmethod
+    def _give(automation, window, held) -> bool:
+        if held is None or held[0] != window.hwnd:
+            return True             # nothing noted for this window (a program UI Automation can't see): as before
+        element = held[1]
+        try:
+            if automation.CompareElements(automation.GetFocusedElement(), element):
+                return True
+            element.SetFocus()
+            deadline = time.monotonic() + 0.8          # a web page moves its focus a moment later
+            while time.monotonic() < deadline:
+                if automation.CompareElements(automation.GetFocusedElement(), element):
+                    return True
+                time.sleep(0.05)
+        except Exception:  # noqa: BLE001 - the box, or its program, is gone
+            pass
+        return False
 
     @staticmethod
     def _inspect(automation, password_box, window) -> tuple[LoginField | None, bool]:
@@ -279,7 +371,7 @@ class FieldWatcher(QObject):
         if element.CurrentIsPassword:
             return LoginField(window, 'password', box, key, page_address(automation, element)), False
         words = f'{element.CurrentName} {element.CurrentAutomationId}'.lower()
-        if any(word in words for word in _NOT_LOGIN_WORDS):
+        if not is_login_name(words):
             return None, False
         walker = automation.ControlViewWalker
         node = element

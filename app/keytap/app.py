@@ -186,7 +186,8 @@ class Controller(QObject):
         if window is None or window.pid == os.getpid() or window.is_shell:
             self.toasts.show('Nothing to type into', 'Click into a box first, then press the hotkey.')
             return
-        self.begin(action, window)
+        # Note the box first: a card of Keytap's may take the keyboard before anything is typed.
+        self.fields.hold(window, lambda: self.begin(action, window))
 
     def begin(self, action: str, window) -> None:
         state = self.status.state
@@ -264,7 +265,16 @@ class Controller(QObject):
         def done(outcome, error):
             self.typing = False
             self._typed(outcome, error, window, login, copy_code)
-        background.run(lambda: typer.type_steps(steps, window.pid, compat=compat, key_delay_ms=delay), done)
+
+        def given_back(ok: bool):
+            if not ok:
+                self.typing = False
+                self.toasts.show('Nothing typed', 'Keytap could not put the keyboard back in that box. Click '
+                                 f'into it and press {self.settings.hotkeys["type"]} again.', error=True)
+                return
+            background.run(lambda: typer.type_steps(steps, window.pid, compat=compat, key_delay_ms=delay), done)
+        # Only into the box it came from: a program may put the keyboard somewhere else on coming back.
+        self.fields.give_back(window, given_back)
 
     def _typed(self, outcome, error, window, login: Login, copy_code: bool) -> None:
         if error is not None:
@@ -330,7 +340,7 @@ class Controller(QObject):
                 # Back to the login box, where the pop-up now lists the logins.
                 window = pending[1]
                 win32.set_foreground(window.hwnd)
-                QTimer.singleShot(250, self.fields.recheck)
+                self.fields.give_back(window, lambda ok: QTimer.singleShot(150, self.fields.recheck))
             elif pending:
                 action, window = pending
                 QTimer.singleShot(0, lambda: self._choose(action, window))
@@ -504,24 +514,26 @@ class Controller(QObject):
             self._dismissed = self.inline.field.key
         self._hide_inline()
 
+    # The pop-up never takes the keyboard, so the box still has it here: note it, for handing back.
+
     def _inline_chosen(self, login: Login) -> None:
         field = self.inline.field
         self._hide_inline()
         if field is not None:
-            self.use(login, 'inline', field.window)
+            self.fields.hold(field.window, lambda: self.use(login, 'inline', field.window))
 
     def _inline_search(self) -> None:
         field = self.inline.field
         self._hide_inline()
         if field is not None:
-            self._choose('pick', field.window)
+            self.fields.hold(field.window, lambda: self._choose('pick', field.window))
 
     def _inline_unlock(self) -> None:
         field = self.inline.field
         self._hide_inline()
         if field is not None:
             self._pending = ('refocus', field.window)
-            self.show_unlock(field.window)
+            self.fields.hold(field.window, lambda: self.show_unlock(field.window))
 
     def _inline_mute(self) -> None:
         field = self.inline.field

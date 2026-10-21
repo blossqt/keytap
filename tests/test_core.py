@@ -18,7 +18,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'app'))
 
-from keytap import hotkeys, matching, sequence, totp, typer, vault  # noqa: E402
+from keytap import focus, hotkeys, matching, sequence, totp, typer, vault  # noqa: E402
 from keytap.vault import Bitwarden, Login, NotSignedIn, VaultError  # noqa: E402
 from keytap.win32 import WindowInfo  # noqa: E402
 
@@ -232,6 +232,49 @@ class MatchingTests(unittest.TestCase):
         github = Login('g', 'GitHub', 'me', 'q', uris=('https://github.com',))
         found = matching.find(claude, [insta, github], {'claude.exe': 'i'}, 'https://github.com/login')
         self.assertEqual([(m.login.id, m.strength) for m in found], [('g', 'page')])
+
+
+class FocusTests(unittest.TestCase):
+    def test_login_names(self):
+        for name in ('Username or email address', 'Email address', 'Phone number, username, or email', 'Password',
+                     'login_field', ''):
+            self.assertTrue(focus.is_login_name(name), name)
+        for name in ('Address and search bar', 'Search', 'Message #general', 'Filter', 'URL'):
+            self.assertFalse(focus.is_login_name(name), name)
+
+    def test_keyboard_handed_back_only_to_the_same_box(self):
+        class Automation:                       # UI Automation, as far as handing back goes
+            def __init__(self, focused, moves=True):
+                self.focused, self.moves = focused, moves
+
+            def GetFocusedElement(self):
+                return self.focused
+
+            def CompareElements(self, a, b):
+                return a is b
+
+        class Element:
+            def __init__(self, automation=None):
+                self.automation = automation
+
+            def SetFocus(self):
+                if self.automation.moves:
+                    self.automation.focused = self
+
+        page, box = object(), Element()
+        claude, other = WindowInfo(1, 'Claude', 'Chrome_WidgetWin_1', 10, r'C:\x\claude.exe'), \
+            WindowInfo(2, 'Other', 'X', 20, r'C:\x\other.exe')
+        same = Automation(box)
+        self.assertTrue(focus.FieldWatcher._give(same, claude, (1, box)), 'still in the box')
+        back = Automation(page)
+        box.automation = back
+        self.assertTrue(focus.FieldWatcher._give(back, claude, (1, box)), 'put back in the box')
+        self.assertIs(back.focused, box)
+        stuck = Automation(page, moves=False)    # Claude's app: the keyboard stays on its own page
+        box.automation = stuck
+        self.assertFalse(focus.FieldWatcher._give(stuck, claude, (1, box)), 'not typed somewhere else')
+        self.assertTrue(focus.FieldWatcher._give(stuck, other, (1, box)), 'nothing noted for that window')
+        self.assertTrue(focus.FieldWatcher._give(stuck, claude, None), 'nothing noted at all: as before')
 
 
 class HotkeyTests(unittest.TestCase):
