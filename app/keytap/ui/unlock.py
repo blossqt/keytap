@@ -75,7 +75,14 @@ class UnlockCard(Card):
         self.hello_button.setEnabled(False)
         self.button.setText(text)
 
+    def wait_for_hello(self) -> None:
+        """Windows Hello's prompt comes up next. This card is in front of everything and would
+        cover it, so it stands back among the other windows until Windows Hello answers."""
+        self.busy('Waiting…')
+        win32.set_topmost(int(self.winId()), False)
+
     def fail(self, message: str) -> None:
+        win32.set_topmost(int(self.winId()), True)
         self.password.setEnabled(True)
         self.button.setEnabled(True)
         self.hello_button.setEnabled(True)

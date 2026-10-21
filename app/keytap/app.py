@@ -362,7 +362,10 @@ class Controller(QObject):
 
     def _unlock(self, card: UnlockCard, password: str | None) -> None:
         """Unlock with the master password typed into card - or, given None, with Windows Hello."""
-        card.busy('Unlocking…' if password is not None else 'Waiting for Windows Hello…')
+        if password is None:
+            card.wait_for_hello()
+        else:
+            card.busy('Unlocking…')
 
         def work():
             given = password if password is not None else hello.password()
@@ -433,7 +436,7 @@ class Controller(QObject):
             if not (self._check and digest and hmac.compare_digest(digest, self._check[1])):
                 card.fail('That is not your master password.')
                 return
-            card.busy('Waiting for Windows Hello…')
+            card.wait_for_hello()
             background.run(lambda: hello.turn_on(password), turned_on)
 
         def turned_on(_, error):

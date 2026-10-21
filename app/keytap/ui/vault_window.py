@@ -570,6 +570,9 @@ class _LockPage(QWidget):
         self.button.setText(text)
         self.message.hide()
 
+    def wait_for_hello(self) -> None:
+        self.busy('Waiting for Windows Hello…')
+
     def fail(self, message: str) -> None:
         self.password.setEnabled(True)
         self.button.setEnabled(True)

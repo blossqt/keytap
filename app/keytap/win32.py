@@ -46,6 +46,8 @@ user32.BringWindowToTop.restype = wintypes.BOOL
 user32.AttachThreadInput.argtypes = [DWORD, DWORD, wintypes.BOOL]
 user32.AttachThreadInput.restype = wintypes.BOOL
 user32.GetWindowRect.argtypes = [HWND, ctypes.POINTER(wintypes.RECT)]
+user32.SetWindowPos.argtypes = [HWND, HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+user32.SetWindowPos.restype = wintypes.BOOL
 user32.GetWindowRect.restype = wintypes.BOOL
 user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
 user32.GetAsyncKeyState.restype = ctypes.c_short
@@ -248,6 +250,13 @@ def set_foreground(hwnd) -> bool:
         if attached:
             user32.AttachThreadInput(mine, theirs, False)
     return user32.GetForegroundWindow() == hwnd
+
+
+def set_topmost(hwnd, on: bool) -> None:
+    """Put a window in front of every other (on), or back among the rest - where a window that
+    comes up later, such as Windows Hello's, can cover it. Neither moves the keyboard."""
+    user32.SetWindowPos(hwnd, -1 if on else -2, 0, 0, 0, 0,     # HWND_TOPMOST, HWND_NOTOPMOST
+                        0x0001 | 0x0002 | 0x0010)                # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
 
 
 # --------------------------------------------------------------------------- integrity
