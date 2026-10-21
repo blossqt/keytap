@@ -89,7 +89,8 @@ class SignInTests(unittest.TestCase):
         self.hello = []
         self.windows_signed = True
         self.hello_answer = True
-        self._patched = (provider.from_windows, provider.verify_user)
+        self._patched = (provider.from_windows, provider.verify_user, provider.identity)
+        provider.identity = lambda: 'Blossqt.Keytap_test'
         provider.from_windows = lambda data, signature: self.windows_signed
 
         def verify_user(hwnd, transaction, user, hint):
@@ -100,7 +101,7 @@ class SignInTests(unittest.TestCase):
         provider.verify_user = verify_user
 
     def tearDown(self):
-        provider.from_windows, provider.verify_user = self._patched
+        provider.from_windows, provider.verify_user, provider.identity = self._patched
 
     def sign_in(self, person, data=None, cancel_after=None):
         """Windows' call, on a thread of its own; the UI thread runs meanwhile. (answer, refusal)."""
@@ -184,6 +185,85 @@ class SignInTests(unittest.TestCase):
         self.assertEqual(self.sign_in(person, cancel_after=0.2)[1], provider.NTE_USER_CANCELLED)
         self.windows_signed = False
         self.assertEqual(self.sign_in(Person([login('a', 'GitHub', 'blossqt')]))[1], provider.E_ACCESSDENIED)
+
+
+class RelayTests(unittest.TestCase):
+    """The Keytap Windows starts relaying to the running Keytap, over a local socket."""
+
+    def setUp(self):
+        from PySide6.QtNetwork import QLocalServer
+        self._patched = (provider.from_windows, provider.verify_user, provider.identity)
+        provider.identity = lambda: 'Blossqt.Keytap_test'
+        provider.from_windows = lambda data, signature: True
+        provider.verify_user = lambda hwnd, transaction, user, hint: True
+        self.person = Person([login('a', 'GitHub', 'blossqt')])
+        self.handler = signins.PasskeySignIns(self.person)
+        self.name = f'keytap-relay-test-{os.getpid()}'
+        QLocalServer.removeServer(self.name)
+        self.server = QLocalServer()
+        self.server.newConnection.connect(self._connection)
+        self.assertTrue(self.server.listen(self.name))
+
+    def tearDown(self):
+        provider.from_windows, provider.verify_user, provider.identity = self._patched
+        self.server.close()
+
+    def _connection(self):
+        # As Controller._connection routes them.
+        socket = self.server.nextPendingConnection()
+        socket.waitForReadyRead(500)
+        message = bytes(socket.readAll()).decode()
+        if message.startswith('passkey '):
+            self.handler.serve_relay(socket, message[len('passkey '):])
+            return
+        words = message.split()
+        if words[0] == 'passkey-locked':
+            socket.write(b'unlocked' if self.person.unlocked else b'locked')
+        elif words[0] == 'passkey-cancel':
+            self.handler.cancel(uuid.UUID(words[1]))
+        socket.waitForBytesWritten(500)
+        socket.disconnectFromServer()
+
+    def through_relay(self, call, cancel_after=None):
+        relay = signins.Relay(self.name)
+        result = {}
+
+        def run():
+            try:
+                result['value'] = call(relay)
+            except provider.Refusal as refusal:
+                result['refusal'] = refusal.hr
+        thread = threading.Thread(target=run)
+        thread.start()
+        started = time.monotonic()
+        while thread.is_alive() and time.monotonic() - started < 10:
+            app.processEvents()
+            if cancel_after is not None and time.monotonic() - started > cancel_after:
+                threading.Thread(target=lambda: relay.cancel(self.op.transaction)).start()
+                cancel_after = None
+            time.sleep(0.005)
+        thread.join(1)
+        return result.get('value'), result.get('refusal')
+
+    def test_relayed_sign_in(self):
+        self.op = SimpleNamespace(hwnd=0, transaction=uuid.uuid4(), data=request_bytes(), signature=b'signed')
+        answer, refusal = self.through_relay(lambda relay: relay.get_assertion(self.op))
+        self.assertIsNone(refusal)
+        response = cbor.loads(answer)
+        self.assertEqual(response[1]['id'], self.person.logins[0].passkeys[0].credential_id)
+        self.assertEqual(response[2][32] & 0x04, 0x04)
+        self.assertEqual(self.through_relay(lambda relay: relay.unlocked())[0], True)
+
+    def test_relayed_refusal_and_cancel(self):
+        self.op = SimpleNamespace(hwnd=0, transaction=uuid.uuid4(), data=request_bytes(rp='gitlab.com'),
+                                  signature=b'signed')
+        self.assertEqual(self.through_relay(lambda relay: relay.get_assertion(self.op))[1], provider.NTE_NOT_FOUND)
+        self.person.logins, self.person.status.state = None, 'locked'           # waits on an unlock
+        self.person.unlock_for = lambda *a: SimpleNamespace(close=lambda: None)
+        self.op = SimpleNamespace(hwnd=0, transaction=uuid.uuid4(), data=request_bytes(), signature=b'signed')
+        self.assertEqual(self.through_relay(lambda relay: relay.get_assertion(self.op), cancel_after=0.3)[1],
+                         provider.NTE_USER_CANCELLED)
+        self.assertEqual(signins.Relay('keytap-nobody-here').unlocked(), False, 'no Keytap: locked, not stuck')
 
 
 if __name__ == '__main__':

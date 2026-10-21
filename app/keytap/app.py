@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,7 +29,7 @@ from . import (APP_NAME, __version__, background, focus, hello, matching, packag
 from .focus import FieldWatcher
 from .hotkeys import Hotkeys, SessionWatcher
 from .settings import Settings
-from .signins import PasskeySignIns
+from .signins import RELAY_IDLE_SECONDS, PasskeySignIns, Relay
 from .suitetray import SuiteTray
 from .vault import Bitwarden, Login, NotSignedIn, Status
 from .ui import icons, theme
@@ -62,7 +63,7 @@ def _verifier(password: str, salt: bytes | None = None) -> tuple[bytes, bytes]:
 
 
 class Controller(QObject):
-    def __init__(self, startup: bool = False):
+    def __init__(self, startup: bool = False, serve_passkeys: bool = False):
         super().__init__()
         self.settings = Settings()
         self.vault = Bitwarden()
@@ -107,11 +108,15 @@ class Controller(QObject):
         self.fields = FieldWatcher(self._field_wanted, self)
         self.fields.field.connect(self._field_changed)
         # Passkeys: only with the package identity Windows asks of passkey providers (see package.py).
+        # Windows calls only a Keytap it started itself (serve_passkeys); any other gets its calls
+        # through a relay (signins.Relay), over the local socket.
         self.signins = PasskeySignIns(self)
+        self.passkeys_on = bool(provider.identity()) and provider.supported()
         self.passkey_server = None
-        if provider.identity() and provider.supported():
-            self.passkey_server = provider.Server(self.signins)
-            self.passkey_server.start()
+        if self.passkeys_on:
+            if serve_passkeys:
+                self.passkey_server = provider.Server(self.signins)
+                self.passkey_server.start()
             background.run(lambda: provider.register(icons.app_icon_svg(), passkeys.authenticator_info()),
                            self._passkeys_registered)
 
@@ -181,7 +186,7 @@ class Controller(QObject):
     def sign_out(self) -> None:
         self.lock()
         self._set_state('unauthenticated')
-        if self.passkey_server is not None:
+        if self.passkeys_on:
             background.run(provider.forget_credentials)
 
         def done(_, error):
@@ -534,7 +539,7 @@ class Controller(QObject):
 
     def _sync_passkeys(self) -> None:
         """Tell Windows which passkeys the vault has (names, not keys), for its passkey window."""
-        if self.passkey_server is None or not self.unlocked:
+        if not self.passkeys_on or not self.unlocked:
             return
         keys = [key for login in self.logins or [] for key in login.passkeys]
 
@@ -925,6 +930,10 @@ class Controller(QObject):
         socket = self._server.nextPendingConnection()
         socket.waitForReadyRead(500)
         message = bytes(socket.readAll()).decode('utf-8', 'replace').strip()
+        if message.startswith('passkey '):
+            # A relay, for Windows: answered once the person has done their part, not here.
+            self.signins.serve_relay(socket, message[len('passkey '):])
+            return
         reply = self.command(message)
         if reply:
             socket.write(reply.encode('utf-8'))
@@ -943,6 +952,17 @@ class Controller(QObject):
             QTimer.singleShot(0, self.quit)
         elif words[0] == 'lock':
             self.lock()
+        elif words[0] == 'ping':
+            pass                            # a relay asking whether Keytap runs
+        elif words[0] == 'passkey-locked':
+            return 'unlocked' if self.unlocked else 'locked'
+        elif words[0] == 'passkey-cancel' and len(words) > 1:
+            try:
+                self.signins.cancel(uuid.UUID(words[1]))
+            except ValueError:
+                pass
+        elif words[0] == 'passkey-make':
+            self.signins.creating_refused()
         elif DEV and words[0] == 'state':
             # Development only (tests/): what Keytap is doing, never any secret.
             card = type(self.card).__name__ if self.card is not None else ''
@@ -1003,6 +1023,18 @@ def send(message: str, reply: bool = False) -> str | None:
         answer = bytes(socket.readAll()).decode('utf-8', 'replace')
     socket.disconnectFromServer()
     return answer
+
+
+def run_relay(app) -> int:
+    """Serve Windows' passkey calls by passing them to the Keytap that runs, until idle."""
+    relay = Relay(SERVER_NAME)
+    server = provider.Server(relay)
+    server.start()
+    print('passkeys: relaying to the running Keytap', flush=True)
+    idle = QTimer(interval=5000)
+    idle.timeout.connect(lambda: app.quit() if relay.idle_seconds() > RELAY_IDLE_SECONDS else None)
+    idle.start()
+    return app.exec()
 
 
 def _log_to_file() -> None:
@@ -1082,6 +1114,9 @@ def main(argv: list[str] | None = None) -> int:
         deadline = time.monotonic() + 20
         while send('still-there') is not None and time.monotonic() < deadline:
             time.sleep(0.25)
+    if '-Embedding' in argv and send('ping') is not None:
+        # Windows started this Keytap for a passkey, and one is running already: relay to it.
+        return run_relay(app)
     # Started by Windows for a passkey (COM, with --passkeys), with Windows, or again: no window.
     quiet = any(flag in argv for flag in ('--startup', '--passkeys', '--restart'))
     message = argv[argv.index('--send') + 1] if '--send' in argv and len(argv) > argv.index('--send') + 1 else \
@@ -1095,6 +1130,6 @@ def main(argv: list[str] | None = None) -> int:
         print('Keytap is not running', file=sys.stderr)
         return 1
 
-    controller = Controller(startup=quiet)  # noqa: F841 - lives as long as the app
+    controller = Controller(startup=quiet, serve_passkeys='-Embedding' in argv)  # noqa: F841 - lives on
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())
     return app.exec()
