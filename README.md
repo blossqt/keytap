@@ -71,7 +71,13 @@ Started with Windows, Keytap stays in the background until you open it.
 Like Bitwarden's extension in a browser, Keytap lists your logins under a
 login box as soon as you click into it - a password box, or a text box with a
 password box beside it. Click a login and it is typed in. Clicked into the
-password box, only the password (and Enter) is typed. The pop-up never takes
+password box, only the password (and Enter) is typed.
+
+Some sign-ins ask for the email first and the password on the next page, like
+Google's and Microsoft's. Their email box gets the pop-up too, on a page whose
+address says it is a sign-in or on a website you have a login for. There
+Keytap types the username and Enter. On the password page, the login you just
+chose comes first, marked *Just used*. The pop-up never takes
 the keyboard, so the cursor stays where it was; Esc or clicking elsewhere
 hides it. While the vault is locked it offers to unlock instead, then lists
 the logins.

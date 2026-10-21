@@ -58,6 +58,8 @@ _ANCESTORS_TO_SEARCH = 3        # how far up from a text box to look for its pas
 _NOT_LOGIN_WORDS = ('search', 'find', 'filter', 'chat', 'message', 'comment', 'url', 'address')
 # ...unless it says it is for signing in: "Username or email address" is a login box.
 _LOGIN_WORDS = ('user', 'email', 'e-mail', 'login', 'log in', 'sign in', 'account', 'phone')
+# A box for the username alone, on a web page that asks for the password on the next one.
+_IDENTIFIER_WORDS = ('user', 'email', 'e-mail', 'phone', 'login', 'identifier')
 _CHROMIUM_CLASSES = ('Chrome_RenderWidgetHostHWND', 'Chrome_WidgetWin_1', 'Chrome_WidgetWin_0')
 
 WINEVENTPROC = ctypes.WINFUNCTYPE(None, wintypes.HANDLE, wintypes.DWORD, wintypes.HWND, wintypes.LONG,
@@ -72,7 +74,9 @@ win32.user32.UnhookWinEvent.restype = wintypes.BOOL
 @dataclass(frozen=True)
 class LoginField:
     window: win32.WindowInfo
-    kind: str                           # 'password' or 'username'
+    # 'password'; 'username', with a password box beside it; or 'identifier', a username box
+    # on a web page whose password box comes on the next page (Google's sign-in, say).
+    kind: str
     rect: tuple[int, int, int, int]     # the box, in physical screen pixels
     key: tuple                          # UI Automation's id for the box, to know it again
     page: str = ''                      # the address of the web page it is on, if it is on one
@@ -381,4 +385,10 @@ class FieldWatcher(QObject):
                 break
             if node.FindFirst(TREE_SCOPE_DESCENDANTS, password_box):
                 return LoginField(window, 'username', box, key, page_address(automation, element)), False
+        if any(word in words for word in _IDENTIFIER_WORDS):
+            # Signing in a step at a time: no password box yet. Only on a web page; the controller
+            # decides whether the page is a sign-in.
+            page = page_address(automation, element)
+            if page:
+                return LoginField(window, 'identifier', box, key, page), False
         return None, False

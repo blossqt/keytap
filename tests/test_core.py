@@ -101,6 +101,11 @@ class SequenceTests(unittest.TestCase):
                          '{PASSWORD}{ENTER}')
         self.assertEqual(sequence.from_password_box('{PASSWORD}{TAB}{TOTP}'), '{PASSWORD}{TAB}{TOTP}')
 
+    def test_from_identifier_box(self):
+        self.assertEqual(sequence.from_identifier_box('{USERNAME}{TAB}{PASSWORD}{ENTER}'), '{USERNAME}{ENTER}')
+        self.assertEqual(sequence.from_identifier_box('{USERNAME}{TAB}{PASSWORD}'), '{USERNAME}')
+        self.assertEqual(sequence.from_identifier_box('{PASSWORD}{ENTER}'), '{PASSWORD}{ENTER}')
+
     def test_for_login(self):
         self.assertEqual(sequence.for_login(Login('3', 'PIN only', '', 'p'), sequence.DEFAULT), '{PASSWORD}{ENTER}')
         own = Login('4', 'X', 'u', 'p', fields=(('AutoType', '{PASSWORD}{ENTER}'),))
@@ -253,6 +258,16 @@ class MatchingTests(unittest.TestCase):
         # Only for base-domain matching, as in Bitwarden.
         exact = Login('e', 'Google', 'me', 'x', uris=('https://accounts.google.com',), uri_match=(matching.HOST,))
         self.assertEqual(matching.find(claude, [exact], {}, 'https://www.youtube.com/signin'), [])
+
+    def test_the_login_just_typed_goes_first(self):
+        # Google's username page, then its password page: the account chosen first is offered first.
+        claude, page = window('claude.exe', 'Claude'), 'https://accounts.google.com/v3/signin/challenge/pwd'
+        main = Login('m', 'Google', 'main@gmail.com', 'x', uris=('https://accounts.google.com',))
+        alt = Login('a', 'Google (alt)', 'alt@gmail.com', 'y', uris=('https://accounts.google.com',))
+        found = matching.find(claude, [main, alt], {'claude.exe|site:google.com': 'm'}, page, just='a')
+        self.assertEqual([(m.login.id, m.strength) for m in found], [('a', 'just'), ('m', 'linked')])
+        self.assertIs(matching.sure_choice(found), alt)
+        self.assertIsNone(matching.sure_choice(matching.find(claude, [main, alt], {}, page)), 'otherwise: ask')
 
     def test_pages_a_program_serves_itself(self):
         # Steam draws its own screens as web pages from steamloopback.host: the program decides, as before.

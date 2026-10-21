@@ -36,8 +36,8 @@ from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from urllib.parse import urlparse
 
-LINKED, URI, PAGE, SITE, HINT = 'linked', 'uri', 'page', 'site', 'hint'
-_ORDER = {LINKED: 0, URI: 1, PAGE: 2, SITE: 3, HINT: 4}
+JUST, LINKED, URI, PAGE, SITE, HINT = 'just', 'linked', 'uri', 'page', 'site', 'hint'
+_ORDER = {JUST: 0, LINKED: 1, URI: 2, PAGE: 3, SITE: 4, HINT: 5}
 
 # Bitwarden's match detection, set per address on a login. None is the default:
 # the base domain, which is also what Bitwarden's apps use unless told otherwise.
@@ -288,9 +288,10 @@ def hints_at(login, window, page: str = '') -> bool:
     return False
 
 
-def find(window, logins, links: dict[str, str], page: str = '') -> list[Match]:
+def find(window, logins, links: dict[str, str], page: str = '', just: str = '') -> list[Match]:
     """The logins that go with this window - or with the web page in it, for a box on one -
-    strongest first."""
+    strongest first. just: a login typed a moment ago into the step before (the username page
+    of a sign-in that asks for the password next), which goes first."""
     site = page_site(page)
     page = page if site else ''               # a page the program serves itself: go by the program
     on_page = _also(site) if site else set()
@@ -302,7 +303,9 @@ def find(window, logins, links: dict[str, str], page: str = '') -> list[Match]:
             linked_id = earlier
     strength = {}
     for login in logins:
-        if linked_id and login.id == linked_id:
+        if just and login.id == just:
+            strength[login.id] = JUST
+        elif linked_id and login.id == linked_id:
             strength[login.id] = LINKED
         elif any(uri_matches(uri, window) for uri, _ in _rules(login)):
             strength[login.id] = URI
@@ -325,7 +328,7 @@ def find(window, logins, links: dict[str, str], page: str = '') -> list[Match]:
 
 def sure_choice(matches: list[Match]):
     """The one login to type without asking, if there is exactly one sure one."""
-    for strength in (LINKED, URI, PAGE):
+    for strength in (JUST, LINKED, URI, PAGE):
         logins = [m.login for m in matches if m.strength == strength]
         if logins:
             return logins[0] if len(logins) == 1 else None

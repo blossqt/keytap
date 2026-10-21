@@ -7,14 +7,15 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
                                QStyle, QStyledItemDelegate)
 
-from ..matching import HINT, LINKED, PAGE, SITE, URI
+from ..matching import HINT, JUST, LINKED, PAGE, SITE, URI
 from . import icons, theme
 from .card import Card
 
 ROW_HEIGHT = 46
 VISIBLE_ROWS = 7
 MAX_ROWS = 300
-_TAGS = {LINKED: 'Always', URI: 'Matches', PAGE: 'Matches', SITE: 'Same site', HINT: 'Suggested'}
+_TAGS = {JUST: 'Just used', LINKED: 'Always', URI: 'Matches', PAGE: 'Matches', SITE: 'Same site',
+         HINT: 'Suggested'}
 
 # (action, menu label, shortcut) - the shortcuts work while the search box has the keyboard.
 ACTIONS = (

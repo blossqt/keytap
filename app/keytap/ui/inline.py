@@ -10,7 +10,7 @@ from PySide6.QtCore import QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QPainter
 from PySide6.QtWidgets import QWidget
 
-from ..matching import LINKED, PAGE, URI
+from ..matching import JUST, LINKED, PAGE, URI
 from . import icons, theme
 from .card import to_logical, to_physical
 
@@ -20,7 +20,7 @@ ROW = 42
 FOOTER = 28
 MIN_WIDTH, MAX_WIDTH = 290, 380
 MAX_LOGINS = 6
-_TAGS = {LINKED: 'Always', URI: 'Matches', PAGE: 'Matches'}
+_TAGS = {JUST: 'Just used', LINKED: 'Always', URI: 'Matches', PAGE: 'Matches'}
 
 
 class InlineMenu(QWidget):

@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,6 +42,9 @@ SERVER_NAME = os.environ.get('KEYTAP_INSTANCE') or f'keytap-{os.environ.get("USE
 APP_ID = 'Suite.Keytap'
 DEV = os.environ.get('KEYTAP_DEV') == '1'
 CLIPBOARD_SECONDS = 30
+JUST_TYPED_SECONDS = 300           # a username-first sign-in's password page offers that login first
+# A page address that says it is a sign-in: accounts.google.com/v3/signin/identifier, login.live.com
+_SIGN_IN_WORDS = ('signin', 'sign-in', 'sign_in', 'login', 'log-in', 'logon', 'auth', 'identifier', 'account')
 SYNC_MINUTES = 30
 
 # Typed for each picker action ('all' uses the login's own sequence).
@@ -76,6 +80,7 @@ class Controller(QObject):
         self._dismissed = None         # a box whose pop-up was closed; not shown again until left
         self._inline_rect = None
         self.hello_supported = False   # Windows Hello set up on this PC; asked once, off the UI thread
+        self._just_typed = None        # (hwnd, website, login id, when): typed into a username-first page
 
         self.hotkeys = Hotkeys(self)
         self.hotkeys.pressed.connect(self.hotkey)
@@ -207,7 +212,7 @@ class Controller(QObject):
         # In a login box on a web page (an app's built-in browser, say), the page's website decides.
         field = self.fields.current(window)
         page = field.page if field is not None and matching.page_site(field.page) else ''
-        matches = matching.find(window, self.logins, self.settings.links, page)
+        matches = matching.find(window, self.logins, self.settings.links, page, self._just(window, page))
         if action == 'type':
             login = matching.sure_choice(matches)
             if login is not None:
@@ -247,6 +252,10 @@ class Controller(QObject):
         text = _ACTION_SEQUENCES.get(what) or sequence.for_login(login, self.settings.sequence)
         if what in ('all', 'inline') and self._in_password_box(window):
             text = sequence.from_password_box(text)
+        elif what in ('all', 'inline') and self._in_identifier_box(window) and not login.sequence:
+            # The username now, the password on the next page - where this login is offered first.
+            text = sequence.from_identifier_box(text)
+            self._just_typed = (window.hwnd, matching.page_site(self.field.page), login.id, time.monotonic())
         try:
             steps = sequence.compile(text, login, lambda: totp.code(login.totp))
         except (sequence.SequenceError, totp.TotpError) as error:
@@ -525,6 +534,28 @@ class Controller(QObject):
         return (self.field is not None and self.field.kind == 'password'
                 and self.field.window.hwnd == window.hwnd)
 
+    def _in_identifier_box(self, window) -> bool:
+        return (self.field is not None and self.field.kind == 'identifier'
+                and self.field.window.hwnd == window.hwnd)
+
+    def _just(self, window, page: str) -> str:
+        """The login typed into this window's username-first page a moment ago, while its
+        password page follows."""
+        if self._just_typed is None or not page:
+            return ''
+        hwnd, site, login_id, when = self._just_typed
+        fresh = time.monotonic() - when < JUST_TYPED_SECONDS
+        return login_id if fresh and hwnd == window.hwnd and site == matching.page_site(page) else ''
+
+    def _identifier_wanted(self, field, page: str) -> bool:
+        """Whether a username box with no password box beside it is a sign-in's first step: on a
+        page whose address says so, or on a website the vault has a login for."""
+        address = field.page.lower()
+        if any(word in address for word in _SIGN_IN_WORDS):
+            return True
+        return self.unlocked and any(m.strength == matching.PAGE
+                                     for m in matching.find(field.window, self.logins, {}, page))
+
     def _field_changed(self, field) -> None:
         if self.typing:
             return
@@ -538,9 +569,12 @@ class Controller(QObject):
         self._dismissed = None
         matches = None
         page = field.page if matching.page_site(field.page) else ''
+        if field.kind == 'identifier' and not (page and self._identifier_wanted(field, page)):
+            self._hide_inline()             # an email box for a newsletter, say
+            return
         if self.unlocked:
-            matches = [(m.login, m.strength)
-                       for m in matching.find(field.window, self.logins, self.settings.links, page)]
+            matches = [(m.login, m.strength) for m in matching.find(
+                field.window, self.logins, self.settings.links, page, self._just(field.window, page))]
         program = field.window.exe or 'this program'
         self.inline.present(field, matches, matching.page_site(page) or program, program)
         self._inline_rect = win32.window_rect(field.window.hwnd)

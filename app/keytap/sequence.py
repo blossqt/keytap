@@ -139,6 +139,17 @@ def from_password_box(sequence: str) -> str:
     return sequence
 
 
+def from_identifier_box(sequence: str) -> str:
+    """The part of a sequence for a sign-in that asks for the username first and the password
+    on the next page (Google's, Microsoft's): {USERNAME}{TAB}{PASSWORD}{ENTER} becomes
+    {USERNAME}{ENTER}. A sequence without {USERNAME} is left alone."""
+    upper = sequence.upper()
+    if '{USERNAME}' not in upper:
+        return sequence
+    end = upper.index('{USERNAME}') + len('{USERNAME}')
+    return sequence[:end] + ('{ENTER}' if upper.rstrip().endswith('{ENTER}') else '')
+
+
 def check(sequence: str) -> str:
     """An error message for a sequence that can never work, else ''."""
     class _Probe:
