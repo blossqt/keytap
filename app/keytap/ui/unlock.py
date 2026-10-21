@@ -11,8 +11,9 @@ from .card import Card
 
 class UnlockCard(Card):
     submitted = Signal(str)
+    hello = Signal()                  # unlock with Windows Hello instead
 
-    def __init__(self, title: str, detail: str = '', button: str = 'Unlock'):
+    def __init__(self, title: str, detail: str = '', button: str = 'Unlock', hello: bool = False):
         super().__init__(380)
         self.succeeded = False
         self._button_text = button
@@ -36,6 +37,11 @@ class UnlockCard(Card):
         self.body.addWidget(self.error)
 
         row = QHBoxLayout()
+        self.hello_button = QPushButton('Windows Hello')
+        self.hello_button.setToolTip('Unlock with your fingerprint, face or PIN')
+        self.hello_button.clicked.connect(self.hello.emit)
+        self.hello_button.setVisible(hello)
+        row.addWidget(self.hello_button)
         row.addStretch(1)
         self.cancel = QPushButton('Cancel')
         self.cancel.clicked.connect(self.close)
@@ -66,14 +72,16 @@ class UnlockCard(Card):
     def busy(self, text: str) -> None:
         self.password.setEnabled(False)
         self.button.setEnabled(False)
+        self.hello_button.setEnabled(False)
         self.button.setText(text)
 
     def fail(self, message: str) -> None:
         self.password.setEnabled(True)
         self.button.setEnabled(True)
+        self.hello_button.setEnabled(True)
         self.button.setText(self._button_text)
         self.error.setText(message)
-        self.error.show()
+        self.error.setVisible(bool(message))
         self.adjustSize()
         self.password.selectAll()
         self.password.setFocus()

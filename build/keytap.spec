@@ -10,6 +10,10 @@ app_dir = os.path.join(project, 'app')
 hiddenimports = ['keytap', 'keytap.app', 'keytap.focus', 'comtypes', 'comtypes.client',
                  'comtypes.gen', 'comtypes.gen.UIAutomationClient',
                  'comtypes.gen._944DE083_8FB8_45CF_BCB7_C477ACB2F897_0_1_0']
+# Windows Hello: imported only when used, so named here.
+hiddenimports += ['keytap.hello', 'winrt.runtime', 'winrt.system', 'winrt.windows.foundation',
+                  'winrt.windows.security.credentials', 'winrt.windows.security.cryptography',
+                  'winrt.windows.storage.streams']
 
 # Qt's plugins, named here rather than left to PyInstaller's Qt hook. The hook
 # drops any plugin whose Qt libraries it finds by a second path - and a build

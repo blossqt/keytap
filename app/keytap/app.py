@@ -22,7 +22,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
-from . import APP_NAME, __version__, background, focus, matching, sequence, totp, typer, win32
+from . import APP_NAME, __version__, background, focus, hello, matching, sequence, totp, typer, win32
 from .focus import FieldWatcher
 from .hotkeys import Hotkeys, SessionWatcher
 from .settings import Settings
@@ -75,6 +75,7 @@ class Controller(QObject):
         self.field = None              # the login box that has the keyboard, if Keytap saw one
         self._dismissed = None         # a box whose pop-up was closed; not shown again until left
         self._inline_rect = None
+        self.hello_supported = False   # Windows Hello set up on this PC; asked once, off the UI thread
 
         self.hotkeys = Hotkeys(self)
         self.hotkeys.pressed.connect(self.hotkey)
@@ -103,6 +104,7 @@ class Controller(QObject):
         self._listen()
         self.apply_hotkeys()
         self.apply_inline()
+        background.run(hello.supported, lambda ok, e: setattr(self, 'hello_supported', bool(ok)))
         if self.vault.available:
             background.run(self.vault.version, lambda v, e: setattr(self, 'cli_version', v or ''))
             self.refresh_status(first=True)
@@ -307,21 +309,26 @@ class Controller(QObject):
         field = self.fields.current(window) if window else None
         detail = (f'to fill {matching.describe(window, field.page if field else "")}' if window
                   else self.status.email)
-        card = UnlockCard('Unlock Keytap', detail)
+        card = UnlockCard('Unlock Keytap', detail, hello=self.hello_on())
         card.submitted.connect(lambda password: self._unlock(card, password))
+        card.hello.connect(lambda: self._unlock(card, None))
         card.closed.connect(lambda: self._unlock_closed(card))
         self._show_card(card, window.hwnd if window else None)
+        if self.hello_on():
+            QTimer.singleShot(150, lambda: self._unlock(card, None) if self.card is card else None)
 
     def _unlock_closed(self, card: UnlockCard) -> None:
         if not card.succeeded:
             self._pending = None
 
-    def _unlock(self, card: UnlockCard, password: str) -> None:
-        card.busy('Unlocking…')
+    def _unlock(self, card: UnlockCard, password: str | None) -> None:
+        """Unlock with the master password typed into card - or, given None, with Windows Hello."""
+        card.busy('Unlocking…' if password is not None else 'Waiting for Windows Hello…')
 
         def work():
-            self.vault.unlock(password)
-            return self.vault.logins(), _verifier(password)
+            given = password if password is not None else hello.password()
+            self.vault.unlock(given)
+            return self.vault.logins(), _verifier(given)
 
         def done(result, error):
             if error is not None:
@@ -329,8 +336,13 @@ class Controller(QObject):
                     card.close()
                     self._set_state('unauthenticated')
                     self.show_sign_in()
+                elif password is None and not isinstance(error, hello.HelloError) and                         'invalid master password' in str(error).lower():
+                    # The master password changed since Windows Hello was turned on.
+                    background.run(hello.turn_off)
+                    card.fail('Your master password has changed since Windows Hello was turned on. Type it '
+                              'here, then turn Windows Hello on again in Settings.')
                 else:
-                    card.fail(str(error))
+                    card.fail('' if isinstance(error, hello.HelloCancelled) else str(error))
                 return
             logins, check = result
             self._unlocked(logins, check)
@@ -349,10 +361,52 @@ class Controller(QObject):
                                  f'Press {self.settings.hotkeys["type"]} in any program to type a login.')
         background.run(work, done)
 
-    def unlock_in(self, page, password: str) -> None:
-        """Unlock from the vault window's own lock screen."""
+    def unlock_in(self, page, password: str | None) -> None:
+        """Unlock from the vault window's own lock screen (with Windows Hello, given None)."""
         self._pending = None
         self._unlock(page, password)
+
+    # ------------------------------------------------------------------ Windows Hello
+
+    def hello_on(self) -> bool:
+        return hello.is_on()
+
+    def turn_on_hello(self) -> None:
+        """Ask for the master password, check it, and have Windows Hello keep it."""
+        if not self.unlocked:
+            self.toasts.show('Unlock Keytap first', 'Then turn on Windows Hello in Settings.')
+            return
+        if self.card is not None:
+            self.card.bring_back()
+            return
+        card = UnlockCard('Turn on Windows Hello', 'Your master password, for Windows Hello to keep',
+                          button='Turn on')
+
+        def submitted(password: str):
+            card.busy('Checking…')
+            salt, expected = self._check or (b'', b'')
+            background.run(lambda: _verifier(password, salt)[1] if salt else b'',
+                           lambda digest, error: checked(password, digest))
+
+        def checked(password: str, digest):
+            if not (self._check and digest and hmac.compare_digest(digest, self._check[1])):
+                card.fail('That is not your master password.')
+                return
+            card.busy('Waiting for Windows Hello…')
+            background.run(lambda: hello.turn_on(password), turned_on)
+
+        def turned_on(_, error):
+            if error is not None:
+                card.fail('' if isinstance(error, hello.HelloCancelled) else str(error))
+                return
+            card.finish()
+            self.toasts.show('Windows Hello is on', 'Unlock Keytap with your fingerprint, face or PIN.')
+        card.submitted.connect(submitted)
+        self._show_card(card, None)
+
+    def turn_off_hello(self) -> None:
+        background.run(hello.turn_off, lambda _, error: self.toasts.show(
+            'Windows Hello is off', 'Keytap asks for your master password again.'))
 
     def _unlocked(self, logins: list[Login], check) -> None:
         self.logins = logins
@@ -597,6 +651,11 @@ class Controller(QObject):
             self._refresh_vault()
             return
         self._keep('vault', VaultWindow(self))
+        window = self._windows.get('vault')
+        if window is not None and self.status.state == 'locked' and self.hello_on():
+            # Opened by hand while locked: straight to Windows Hello, as Bitwarden's app does.
+            QTimer.singleShot(300, lambda: self.unlock_in(window.lock_page, None)
+                              if window.pages.currentWidget() is window.lock_page else None)
 
     def _refresh_vault(self) -> None:
         window = self._windows.get('vault')
@@ -729,13 +788,18 @@ class Controller(QObject):
                                'hotkey_problems': self.hotkey_problems, 'inline': self.inline.describe(),
                                'field': self.field.kind if self.field else '',
                                'watching': self.fields.running, 'watch_error': self.fields.failed,
-                               'vault_window': self._vault_window_state()})
+                               'vault_window': self._vault_window_state(), 'hello': self.hello_on()})
         elif DEV and words[0] == 'inline-point' and len(words) > 1:
             x, y = self.inline.row_point(int(words[1]))
             return f'{x} {y}'
         elif DEV and words[0] == 'window-unlock' and len(words) > 1 and 'vault' in self._windows:
             # Tests: the master password, as if typed into the vault window's lock screen.
             self._windows['vault'].lock_page.submitted.emit(message.split(' ', 1)[1])
+        elif DEV and words[0] == 'card-submit' and len(words) > 1 and isinstance(self.card, UnlockCard):
+            # Tests: the master password, as if typed into the card on screen.
+            self.card.submitted.emit(message.split(' ', 1)[1])
+        elif DEV and words[0] == 'hello-on':
+            self.turn_on_hello()
         elif DEV and words[0] == 'reload':
             self.settings = Settings()
             self.apply_hotkeys()
@@ -800,6 +864,9 @@ def self_test(argv: list[str]) -> int:
         problem = focus.probe()
         if problem:
             raise RuntimeError(f'UI Automation: {problem}')
+        # Windows Hello's WinRT modules came along (whether this PC has Windows Hello or not).
+        from winrt.windows.security.credentials import KeyCredentialManager  # noqa: F401
+        from winrt.windows.security.cryptography import CryptographicBuffer  # noqa: F401
         vault = Bitwarden()
         if not vault.available:
             raise RuntimeError("Bitwarden's CLI is not bundled")

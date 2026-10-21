@@ -18,7 +18,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / 'app'))
 
-from keytap import focus, hotkeys, matching, sequence, totp, typer, vault  # noqa: E402
+from keytap import focus, hello, hotkeys, matching, sequence, totp, typer, vault  # noqa: E402
 from keytap.vault import Bitwarden, Login, NotSignedIn, VaultError  # noqa: E402
 from keytap.win32 import WindowInfo  # noqa: E402
 
@@ -323,6 +323,40 @@ class FocusTests(unittest.TestCase):
         self.assertFalse(focus.FieldWatcher._give(stuck, claude, (1, box)), 'not typed somewhere else')
         self.assertTrue(focus.FieldWatcher._give(stuck, other, (1, box)), 'nothing noted for that window')
         self.assertTrue(focus.FieldWatcher._give(stuck, claude, None), 'nothing noted at all: as before')
+
+
+class HelloTests(unittest.TestCase):
+    def test_sealed_so_only_the_same_signature_opens_it(self):
+        sealed = hello.seal('a made-up master password', b'signature' * 32)
+        self.assertNotIn(b'made-up', sealed)
+        self.assertEqual(hello.unseal(sealed, b'signature' * 32), 'a made-up master password')
+        with self.assertRaises(hello.HelloError):
+            hello.unseal(sealed, b'another one' * 32)
+
+    def test_on_and_off_with_a_stand_in_for_windows_hello(self):
+        folder = Path(tempfile.mkdtemp())
+        saved = {k: os.environ.get(k) for k in ('KEYTAP_DEV', 'KEYTAP_FAKE_HELLO', 'KEYTAP_HELLO_FILE')}
+        os.environ.update(KEYTAP_DEV='1', KEYTAP_FAKE_HELLO='yes', KEYTAP_HELLO_FILE=str(folder / 'hello.json'))
+        try:
+            self.assertFalse(hello.is_on())
+            hello.turn_on('a made-up master password')
+            self.assertTrue(hello.is_on())
+            self.assertNotIn('made-up', (folder / 'hello.json').read_text())
+            self.assertEqual(hello.password(), 'a made-up master password')
+            os.environ['KEYTAP_FAKE_HELLO'] = 'cancel'
+            with self.assertRaises(hello.HelloCancelled):
+                hello.password()
+            hello.turn_off()
+            self.assertFalse(hello.is_on())
+            with self.assertRaises(hello.HelloError):
+                hello.password()
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            shutil.rmtree(folder, ignore_errors=True)
 
 
 class HotkeyTests(unittest.TestCase):

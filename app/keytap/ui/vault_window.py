@@ -491,6 +491,7 @@ class _LockPage(QWidget):
     """Bitwarden's lock screen. Also what the controller's unlocking reports to (busy, fail, finish)."""
 
     submitted = Signal(str)
+    hello = Signal()              # unlock with Windows Hello instead
     quiet = True                  # unlocking here needs no "Keytap is unlocked" toast
 
     def __init__(self):
@@ -526,16 +527,25 @@ class _LockPage(QWidget):
         self.button.setCursor(Qt.PointingHandCursor)
         self.button.clicked.connect(self._submit)
         column.addWidget(self.button, 0, Qt.AlignHCenter)
+        self.hello_button = QPushButton('Unlock with Windows Hello')
+        self.hello_button.setFixedWidth(320)
+        self.hello_button.setCursor(Qt.PointingHandCursor)
+        self.hello_button.setToolTip('Your fingerprint, face or PIN')
+        self.hello_button.clicked.connect(self.hello.emit)
+        self.hello_button.hide()
+        column.addWidget(self.hello_button, 0, Qt.AlignHCenter)
         outer.addLayout(column)
         outer.addStretch(3)
 
-    def reset(self, email: str) -> None:
+    def reset(self, email: str, hello: bool = False) -> None:
         self.succeeded = False
         self.who.setText(f'Signed in as {email}' if email else '')
         self.password.clear()
         self.password.setEnabled(True)
         self.button.setEnabled(True)
         self.button.setText('Unlock')
+        self.hello_button.setEnabled(True)
+        self.hello_button.setVisible(hello)
         self.message.hide()
 
     def _submit(self) -> None:
@@ -545,15 +555,17 @@ class _LockPage(QWidget):
     def busy(self, text: str) -> None:
         self.password.setEnabled(False)
         self.button.setEnabled(False)
+        self.hello_button.setEnabled(False)
         self.button.setText(text)
         self.message.hide()
 
     def fail(self, message: str) -> None:
         self.password.setEnabled(True)
         self.button.setEnabled(True)
+        self.hello_button.setEnabled(True)
         self.button.setText('Unlock')
         self.message.setText(message)
-        self.message.show()
+        self.message.setVisible(bool(message))
         self.password.selectAll()
         self.password.setFocus()
 
@@ -621,6 +633,7 @@ class VaultWindow(QWidget):
 
         self.lock_page = _LockPage()
         self.lock_page.submitted.connect(lambda password: controller.unlock_in(self.lock_page, password))
+        self.lock_page.hello.connect(lambda: controller.unlock_in(self.lock_page, None))     # None: Windows Hello
         self.notice = _NoticePage()
         self.vault_page = self._vault_page()
         for page in (self.vault_page, self.lock_page, self.notice):
@@ -769,7 +782,7 @@ class VaultWindow(QWidget):
         self._forget()
         if state == 'locked':
             if self.pages.currentWidget() is not self.lock_page:
-                self.lock_page.reset(controller.status.email)
+                self.lock_page.reset(controller.status.email, hello=controller.hello_on())
                 self.pages.setCurrentWidget(self.lock_page)
             self.lock_page.password.setFocus()
         elif state == 'unauthenticated':
@@ -923,4 +936,5 @@ def sample_controller(logins, folders=None):
     return SimpleNamespace(status=status, unlocked=True, logins=logins, folders=folders or {},
                            settings=SimpleNamespace(hotkeys={'type': 'Ctrl+Alt+A', 'pick': 'Ctrl+Alt+Shift+A'}),
                            copy=noop, lock=noop, sync=noop, show_settings=noop, show_sign_in=noop,
-                           unlock_in=noop, confirm=noop, toasts=SimpleNamespace(show=noop))
+                           unlock_in=noop, confirm=noop, toasts=SimpleNamespace(show=noop),
+                           hello_on=lambda: False)

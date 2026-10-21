@@ -359,6 +359,25 @@ class SettingsDialog(QDialog):
         layout.addLayout(row)
         layout.addWidget(_note('Locking forgets your logins until you unlock again, and has Bitwarden '
                                'destroy the session key. Quitting Keytap locks it too.'))
+
+        layout.addSpacing(10)
+        layout.addWidget(_heading('Windows Hello'))
+        row = QHBoxLayout()
+        self._hello_state = QLabel()
+        row.addWidget(self._hello_state, 1)
+        self._hello = QPushButton()
+        self._hello.clicked.connect(self._toggle_hello)
+        row.addWidget(self._hello)
+        layout.addLayout(row)
+        if not controller.hello_supported and not controller.hello_on():
+            why = ('Windows Hello is not set up on this PC. Set up a PIN, fingerprint or face in Windows '
+                   'Settings → Accounts → Sign-in options, then come back here.')
+        else:
+            why = ("Unlock with your fingerprint, face or PIN instead of your master password. As in "
+                   "Bitwarden's desktop app, Keytap keeps your master password sealed so that only Windows "
+                   'Hello, on your Windows account, can open it.')
+        layout.addWidget(_note(why))
+        self._show_hello()
         layout.addStretch(1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -372,6 +391,22 @@ class SettingsDialog(QDialog):
         bottom.addStretch(1)
         bottom.addWidget(buttons)
         outer.addLayout(bottom)
+
+    def _show_hello(self, on: bool | None = None) -> None:
+        controller = self.controller
+        on = controller.hello_on() if on is None else on
+        self._hello_state.setText('On - unlock with your fingerprint, face or PIN' if on else 'Off')
+        self._hello.setText('Turn off' if on else 'Turn on…')
+        self._hello.setEnabled(on or (controller.hello_supported and controller.unlocked))
+        self._hello.setToolTip('' if on or controller.unlocked else 'Unlock Keytap first')
+
+    def _toggle_hello(self) -> None:
+        if self.controller.hello_on():
+            self.controller.turn_off_hello()
+            self._show_hello(False)
+        else:
+            self.reject()                   # the master password is asked for on a card of its own
+            self.controller.turn_on_hello()
 
     def _sign_out(self) -> None:
         answer = QMessageBox.question(self, 'Keytap', 'Sign out of Bitwarden on this PC? '

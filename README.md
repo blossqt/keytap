@@ -5,8 +5,9 @@ there: game launchers, desktop apps, remote desktops, anything with a
 username box. Part of the same suite as Homework Hub, Grabbit and Dropshift.
 
 Keytap reads your vault through Bitwarden's own command-line tool, which
-comes with it. It never talks to Bitwarden's servers itself, never saves a
-password, and never writes to your vault.
+comes with it. It never talks to Bitwarden's servers itself and never writes
+to your vault. It saves no passwords, except your master password sealed for
+Windows Hello if you turn that on.
 
 ## Installing
 
@@ -172,6 +173,26 @@ being idle (both in Settings), from the tray menu, and when Keytap quits.
 Locking drops everything from memory and has Bitwarden destroy the session
 key. Logins set to ask for the master password again (Bitwarden's *Master
 password re-prompt*) ask each time.
+
+## Unlocking with Windows Hello
+
+In Settings → Locking, **Turn on** Windows Hello: type your master password
+once, then confirm with your fingerprint, face or PIN. From then on, Keytap
+asks Windows Hello first when it needs unlocking: on the unlock card, and as
+soon as you open Keytap while it is locked. The master password still works,
+and cancelling Windows Hello leaves you to type it.
+
+It works as in Bitwarden's desktop app:
+
+- **The key:** Windows makes a Windows Hello key for Keytap and keeps it in the
+  PC's security chip where there is one. The key works only once Windows
+  Hello has checked it is you.
+- **The seal:** Keytap seals your master password with that key and with your
+  Windows account, in `%APPDATA%\Keytap\hello.json`. Nothing else can open it.
+
+If you change your master password, Windows Hello turns itself off until you
+turn it on again. Logins that ask for the master password again still ask for
+it.
 
 ## Building
 
