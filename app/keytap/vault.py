@@ -9,13 +9,14 @@ never on a command line, where other programs could read it.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 from . import win32
@@ -37,6 +38,36 @@ class VaultError(Exception):
 
 class NotSignedIn(VaultError):
     pass
+
+
+def logins_to_json(logins: list[Login]) -> str:
+    """Logins as JSON, keys and all (for hello's sealed copy) - logins_from_json reads it back."""
+    def b64(data: bytes) -> str:
+        return base64.b64encode(data).decode('ascii')
+
+    def passkey(key: Passkey) -> dict:
+        out = {f.name: getattr(key, f.name) for f in fields(Passkey)}
+        out.update(credential_id=b64(key.credential_id), user_handle=b64(key.user_handle), key=b64(key.key))
+        return out
+
+    def login(item: Login) -> dict:
+        out = {f.name: getattr(item, f.name) for f in fields(Login)}
+        out.update(hidden=sorted(item.hidden), passkeys=[passkey(key) for key in item.passkeys])
+        return out
+    return json.dumps([login(item) for item in logins])
+
+
+def logins_from_json(text: str) -> list[Login]:
+    """What logins_to_json wrote. Raises ValueError, TypeError or KeyError if it doesn't fit."""
+    def passkey(data: dict) -> Passkey:
+        return Passkey(**{**data, 'credential_id': base64.b64decode(data['credential_id']),
+                          'user_handle': base64.b64decode(data['user_handle']), 'key': base64.b64decode(data['key'])})
+
+    def login(data: dict) -> Login:
+        return Login(**{**data, 'uris': tuple(data['uris']), 'uri_match': tuple(data['uri_match']),
+                        'fields': tuple(tuple(pair) for pair in data['fields']), 'hidden': frozenset(data['hidden']),
+                        'passkeys': tuple(passkey(key) for key in data['passkeys'])})
+    return [login(data) for data in json.loads(text)]
 
 
 @dataclass(frozen=True)
@@ -244,11 +275,18 @@ class Bitwarden:
 
     # ------------------------------------------------------------------ the vault
 
-    def unlock(self, password: str) -> None:
+    def unlock(self, password: str, keep: bool = True) -> str:
+        """Unlock bw; its session key, which this holds from now on unless not keep."""
         out = self._run('unlock', '--passwordenv', _PASSWORD_ENV, '--raw', password=password, session=False)
         key = _last_line(out)
         if not _SESSION_KEY.match(key):
             raise VaultError('Bitwarden did not unlock the vault')
+        if keep:
+            self._session = key
+        return key
+
+    def use_session(self, key: str) -> None:
+        """Hold a session key unlock(keep=False) gave."""
         self._session = key
 
     def take_session(self) -> str:
@@ -264,10 +302,11 @@ class Bitwarden:
             except VaultError:
                 pass
 
-    def logins(self) -> list[Login]:
-        if not self._session:
+    def logins(self, session: str = '') -> list[Login]:
+        """The vault's logins - with the session key held, or one of its own."""
+        if not (session or self._session):
             raise VaultError('The vault is locked')
-        items = _json_from(self._run('list', 'items'), '[')
+        items = _json_from(self._run('list', 'items', session=session or True), '[')
         logins = [Login.from_item(item) for item in items if isinstance(item, dict)]
         return [login for login in logins if login is not None]
 

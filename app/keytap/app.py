@@ -32,7 +32,7 @@ from .hotkeys import Hotkeys, SessionWatcher
 from .settings import Settings
 from .signins import PasskeySignIns, Relay
 from .suitetray import SuiteTray
-from .vault import Bitwarden, Login, NotSignedIn, Status
+from .vault import Bitwarden, Login, NotSignedIn, Status, VaultError
 from .ui import icons, theme
 from .ui.dialogs import SettingsDialog, SignInDialog, WelcomeDialog, bring_up
 from .ui.inline import InlineMenu
@@ -76,6 +76,8 @@ class Controller(QObject):
         self.card = None               # the picker or unlock card on screen, if any
         self.typing = False
         self._check = None             # the master password's verifier while unlocked
+        self._logins_key = None        # opens the copy of the logins Windows Hello keeps, once Hello opened it
+        self._generation = 0           # one more each time Keytap locks
         self._pending = None           # (action, window) waiting for the vault to unlock
         self._windows: dict[str, object] = {}
         self._copied = ''
@@ -187,6 +189,7 @@ class Controller(QObject):
     def sign_out(self) -> None:
         self.lock()
         self._set_state('unauthenticated')
+        background.run(hello.forget_logins)
         if self.passkeys_on:
             background.run(provider.forget_credentials)
 
@@ -369,9 +372,16 @@ class Controller(QObject):
             card.busy('Unlocking…')
 
         def work():
-            given = password if password is not None else hello.password()
-            self.vault.unlock(given)
-            return self.vault.logins(), _verifier(given)
+            if password is not None:
+                self.vault.unlock(password)
+                return self.vault.logins(), _verifier(password), None, True
+            opened = hello.open_seal()
+            kept = hello.kept_logins(self.status.email, opened.logins_key)
+            if kept is not None:
+                # At once, from the copy Windows Hello keeps; bw unlocks meanwhile (_finish_unlock).
+                return kept, _verifier(opened.password), opened, False
+            self.vault.unlock(opened.password)
+            return self.vault.logins(), _verifier(opened.password), opened, True
 
         def done(result, error):
             if error is not None:
@@ -387,8 +397,10 @@ class Controller(QObject):
                 else:
                     card.fail('' if isinstance(error, hello.HelloCancelled) else str(error))
                 return
-            logins, check = result
-            self._unlocked(logins, check)
+            logins, check, opened, ready = result
+            self._unlocked(logins, check, opened.logins_key if opened else None, ready)
+            if not ready:
+                self._finish_unlock(opened.password)
             card.finish()
             pending, self._pending = self._pending, None
             if pending and pending[0] == 'refocus':
@@ -440,26 +452,83 @@ class Controller(QObject):
             card.wait_for_hello()
             background.run(lambda: hello.turn_on(password), turned_on)
 
-        def turned_on(_, error):
+        def turned_on(logins_key, error):
             if error is not None:
                 card.fail('' if isinstance(error, hello.HelloCancelled) else str(error))
                 return
+            self._logins_key = logins_key
+            self._keep_logins()
             card.finish()
             self.toasts.show('Windows Hello is on', 'Unlock Keytap with your fingerprint, face or PIN.')
         card.submitted.connect(submitted)
         self._show_card(card, None)
 
     def turn_off_hello(self) -> None:
+        self._logins_key = None
         background.run(hello.turn_off, lambda _, error: self.toasts.show(
             'Windows Hello is off', 'Keytap asks for your master password again.'))
 
-    def _unlocked(self, logins: list[Login], check) -> None:
+    def _unlocked(self, logins: list[Login], check, logins_key: bytes | None = None, ready: bool = True) -> None:
+        """Unlocked, with logins from bw - or, not ready, from the copy Windows Hello keeps, while
+        bw unlocks (_finish_unlock)."""
         self.logins = logins
         self._check = check
+        self._logins_key = logins_key
         self._set_state('unlocked')
-        self._syncer.start()
         self._sync_passkeys()
+        if ready:
+            self._vault_ready()
+
+    def _vault_ready(self) -> None:
+        self._keep_logins()
+        self._syncer.start()
         self.sync(quiet=True)
+
+    def _finish_unlock(self, password: str) -> None:
+        """Unlocked from the copy of the logins Windows Hello keeps: now bw, for its session key and
+        the logins as they are. Should bw say no, Keytap locks again, as unlocking would have failed."""
+        generation = self._generation
+
+        def work():
+            key = self.vault.unlock(password, keep=False)
+            try:
+                return key, self.vault.logins(session=key)
+            except VaultError:
+                self.vault.lock(key)
+                raise
+
+        def done(result, error):
+            if generation != self._generation or not self.unlocked:
+                if result:                          # locked meanwhile: bw forgets this key too
+                    background.run(lambda: self.vault.lock(result[0]))
+                return
+            if error is not None:
+                self.lock()
+                if isinstance(error, NotSignedIn):
+                    self._set_state('unauthenticated')
+                    self.show_sign_in()
+                elif 'invalid master password' in str(error).lower():
+                    background.run(hello.turn_off)
+                    self.toasts.show('Keytap is locked', 'Your master password has changed since Windows Hello '
+                                     'was turned on. Unlock with it, then turn Windows Hello on again in Settings.',
+                                     error=True)
+                else:
+                    self.toasts.show('Keytap is locked', f'Bitwarden did not unlock: {error}', error=True)
+                return
+            key, logins = result
+            self.vault.use_session(key)
+            self.logins = logins
+            self._refresh_vault()
+            self._sync_passkeys()
+            self._vault_ready()
+        background.run(work, done)
+
+    def _keep_logins(self) -> None:
+        """Seal a copy of the logins for Windows Hello to open at once next time - possible only
+        once Windows Hello has opened the copy's key, in this unlock."""
+        key, logins, account = self._logins_key, self.logins, self.status.email
+        if key and logins is not None and account and hello.is_on():
+            background.run(lambda: hello.keep_logins(logins, account, key))
 
     # ------------------------------------------------------------------ passkeys
 
@@ -598,6 +667,8 @@ class Controller(QObject):
         self.logins = None
         self.folders = {}
         self._check = None
+        self._logins_key = None
+        self._generation += 1           # an unlock still finishing in the background is dropped
         self._drop_pending()
         self._syncer.stop()
         self._hide_inline()
@@ -628,6 +699,7 @@ class Controller(QObject):
                 self._refresh_vault()
                 self._load_folders()
                 self._sync_passkeys()
+                self._keep_logins()
                 if not quiet:
                     self.toasts.show('Synced', f'{len(logins)} logins in your vault.')
         background.run(work, done)

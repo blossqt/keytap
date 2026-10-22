@@ -373,6 +373,44 @@ class HelloTests(unittest.TestCase):
                     os.environ[key] = value
             shutil.rmtree(folder, ignore_errors=True)
 
+    def test_the_copy_of_the_logins_windows_hello_opens(self):
+        from keytap.passkeys import Passkey
+        folder = Path(tempfile.mkdtemp())
+        saved = {k: os.environ.get(k) for k in ('KEYTAP_DEV', 'KEYTAP_FAKE_HELLO', 'KEYTAP_HELLO_FILE')}
+        os.environ.update(KEYTAP_DEV='1', KEYTAP_FAKE_HELLO='yes', KEYTAP_HELLO_FILE=str(folder / 'hello.json'))
+        key = Passkey(login_id='g', credential_id=b'\x01\x02', rp_id='github.com', user_handle=b'\xff', key=b'pkcs8')
+        logins = [Login('g', 'GitHub', 'blossqt', 'made-up-password', totp='JBSWY3DP', uris=('https://github.com',),
+                        uri_match=(None,), fields=(('pin', '1234'),), reprompt=True, hidden=frozenset({'pin'}),
+                        passkeys=(key,)),
+                  Login('n', 'Notes only')]
+        try:
+            logins_key = hello.turn_on('a made-up master password')
+            hello.keep_logins(logins, 'me@example.com', logins_key)
+            self.assertNotIn(b'made-up', hello.logins_store().read_bytes())
+            opened = hello.open_seal()
+            self.assertEqual(opened, ('a made-up master password', logins_key))
+            self.assertEqual(hello.kept_logins('me@example.com', opened.logins_key), logins)
+            self.assertIsNone(hello.kept_logins('someone@else.com', opened.logins_key), 'another account')
+            self.assertIsNone(hello.kept_logins('me@example.com', os.urandom(32)), 'another key')
+            # Turned on before there was a copy: Windows Hello's next opening makes its key.
+            kept = json.loads((folder / 'hello.json').read_text())
+            del kept['logins_key']
+            (folder / 'hello.json').write_text(json.dumps(kept))
+            fresh = hello.open_seal()
+            self.assertEqual(fresh.password, 'a made-up master password')
+            self.assertIsNone(hello.kept_logins('me@example.com', fresh.logins_key))
+            self.assertEqual(hello.open_seal().logins_key, fresh.logins_key, 'kept from then on')
+            hello.keep_logins(logins, 'me@example.com', fresh.logins_key)
+            hello.turn_off()
+            self.assertFalse(hello.logins_store().exists(), 'gone with Windows Hello')
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+            shutil.rmtree(folder, ignore_errors=True)
+
 
 class HotkeyTests(unittest.TestCase):
     def test_parse(self):

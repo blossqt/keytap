@@ -13,9 +13,14 @@ It works as Bitwarden's desktop app does:
   useless without Windows Hello.
 - Unlocking asks Windows Hello to sign the challenge again, opens the seal with
   the signature, and unlocks Bitwarden's tool with the password.
+- Bitwarden's tool takes seconds to unlock and list the logins, so Keytap also
+  keeps a copy of the logins, sealed the same way (with a key of its own that
+  the signature seals - kept_logins). Windows Hello opens it at once, and the
+  tool unlocks and lists the logins meanwhile, for anything changed.
 
-Turning it off forgets the sealed password and deletes the key. Every call
-here waits on Windows Hello or the person, so they run off the UI thread.
+Turning it off forgets the sealed password and logins and deletes the key.
+Every call here waits on Windows Hello or the person, so they run off the UI
+thread.
 """
 
 from __future__ import annotations
@@ -30,9 +35,10 @@ import threading
 import time
 from ctypes import wintypes
 from pathlib import Path
+from typing import NamedTuple
 
 from . import win32
-from .vault import VaultError
+from .vault import Login, VaultError, logins_from_json, logins_to_json
 
 KEY_NAME = 'Keytap'
 # Windows Hello's prompt, which can open behind other windows: Keytap brings it forward.
@@ -52,8 +58,17 @@ def store() -> Path:
     return Path(override) if override else win32.app_data() / 'hello.json'
 
 
+def logins_store() -> Path:
+    return store().with_name('hello-logins.bin')
+
+
 def is_on() -> bool:
     return store().exists()
+
+
+class Opened(NamedTuple):
+    password: str
+    logins_key: bytes          # opens the sealed copy of the logins (kept_logins)
 
 
 def _wait(operation):
@@ -172,30 +187,82 @@ def unseal(sealed: bytes, signature: bytes) -> str:
                          'turn Windows Hello on again in Settings.') from None
 
 
-def turn_on(password: str) -> None:
-    """Make Keytap's Windows Hello key (Windows Hello asks) and seal the password with it."""
-    challenge = os.urandom(32)
-    sealed = seal(password, _sign(challenge, create=True))
-    path = store()
+def _write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps({'version': 1, 'challenge': base64.b64encode(challenge).decode(),
-                                     'sealed': base64.b64encode(sealed).decode()}), encoding='utf-8')
+    temporary.write_bytes(data)
     os.replace(temporary, path)
 
 
-def password() -> str:
-    """The master password, once Windows Hello has checked it is you."""
+def _new_logins_key(kept: dict, signature: bytes) -> bytes:
+    key = os.urandom(32)
+    kept['logins_key'] = base64.b64encode(_dpapi(key, hashlib.sha256(signature).digest(), protect=True)).decode()
+    return key
+
+
+def turn_on(password: str) -> bytes:
+    """Make Keytap's Windows Hello key (Windows Hello asks) and seal the password with it. The key
+    to the sealed copy of the logins."""
+    challenge = os.urandom(32)
+    signature = _sign(challenge, create=True)
+    kept = {'version': 1, 'challenge': base64.b64encode(challenge).decode(),
+            'sealed': base64.b64encode(seal(password, signature)).decode()}
+    logins_key = _new_logins_key(kept, signature)
+    forget_logins()
+    _write(store(), json.dumps(kept).encode('utf-8'))
+    return logins_key
+
+
+def open_seal() -> Opened:
+    """The master password, and the key to the copy of the logins, once Windows Hello has
+    checked it is you."""
     try:
         kept = json.loads(store().read_text(encoding='utf-8'))
         challenge, sealed = base64.b64decode(kept['challenge']), base64.b64decode(kept['sealed'])
     except (OSError, ValueError, KeyError) as error:
         raise HelloError('Windows Hello is not set up for Keytap - turn it on in Settings.') from error
-    return unseal(sealed, _sign(challenge, create=False))
+    signature = _sign(challenge, create=False)
+    password = unseal(sealed, signature)
+    try:
+        logins_key = _dpapi(base64.b64decode(kept['logins_key']), hashlib.sha256(signature).digest(), protect=False)
+    except (KeyError, ValueError, OSError):
+        # Turned on before Keytap kept a copy of the logins: a key for one from now on.
+        logins_key = _new_logins_key(kept, signature)
+        forget_logins()
+        _write(store(), json.dumps(kept).encode('utf-8'))
+    return Opened(password, logins_key)
+
+
+def password() -> str:
+    """The master password, once Windows Hello has checked it is you."""
+    return open_seal().password
+
+
+def keep_logins(logins: list[Login], account: str, logins_key: bytes) -> None:
+    """Seal a copy of the logins, for Windows Hello to open at once next time."""
+    data = json.dumps({'version': 1, 'account': account, 'logins': logins_to_json(logins)})
+    _write(logins_store(), _dpapi(data.encode('utf-8'), logins_key, protect=True))
+
+
+def kept_logins(account: str, logins_key: bytes) -> list[Login] | None:
+    """The sealed copy of the logins - None if there is none, it is another account's, or it
+    won't open."""
+    try:
+        data = json.loads(_dpapi(logins_store().read_bytes(), logins_key, protect=False).decode('utf-8'))
+        if data.get('version') != 1 or not account or data.get('account') != account:
+            return None
+        return logins_from_json(data['logins'])
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def forget_logins() -> None:
+    logins_store().unlink(missing_ok=True)
 
 
 def turn_off() -> None:
     store().unlink(missing_ok=True)
+    forget_logins()
     if _fake():
         return                      # tests leave the real key alone
     try:
