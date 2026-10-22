@@ -26,7 +26,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
 from . import (APP_NAME, __version__, background, focus, hello, matching, package, passkeys, provider, sequence,
-               totp, typer, win32)
+               suitelog, totp, typer, win32)
 from .focus import FieldWatcher
 from .hotkeys import Hotkeys, SessionWatcher
 from .settings import Settings
@@ -1144,18 +1144,6 @@ def run_relay(app) -> int:
     return app.exec()
 
 
-def _log_to_file() -> None:
-    # A windowed exe (or pythonw) has nowhere to print tracebacks; keep them.
-    if sys.stderr is not None:
-        return
-    folder = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'Keytap'
-    folder.mkdir(parents=True, exist_ok=True)
-    log = open(folder / 'keytap.log', 'a', encoding='utf-8', buffering=1)  # noqa: SIM115
-    sys.stdout = sys.stderr = log
-    import faulthandler
-    faulthandler.enable(log)          # a crash inside a call from Windows leaves its stack here
-
-
 def self_test(argv: list[str]) -> int:
     """Load what a real start loads and answer with the versions - the build's check."""
     target = argv[argv.index('--self-test') + 1] if len(argv) > argv.index('--self-test') + 1 else ''
@@ -1201,7 +1189,7 @@ def self_test(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
-    _log_to_file()
+    suitelog.start(APP_NAME)          # a crash inside a call from Windows leaves its stack there
     if '--self-test' in argv:
         return self_test(argv)
     try:
