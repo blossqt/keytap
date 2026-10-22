@@ -6,8 +6,13 @@
   class (IPluginAuthenticator) here. Keytap's writes are not redirected:
   it runs as the ordinary program it is.
 
-  Raise the Version when anything here changes: Keytap registers the package
-  again when the one in its folder is newer than the one Windows has.
+  Two apps, one Keytap.exe: "Keytap" is Keytap started from its exe (Start,
+  Windows, Hanami - the exe's manifest names it), "Passkeys" is Keytap as COM
+  starts it for Windows. As one app, Windows ended a Keytap COM started while
+  one from the exe ran, and that one with it.
+
+  Raise the Version when anything here changes: Keytap updates the package
+  when the one in its folder is newer than the one it runs as.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -17,7 +22,7 @@
   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
   IgnorableNamespaces="uap uap10 rescap desktop6 com">
-  <Identity Name="Blossqt.Keytap" Publisher="CN=blossqt" Version="1.0.0.0" ProcessorArchitecture="x64"/>
+  <Identity Name="Blossqt.Keytap" Publisher="CN=blossqt" Version="1.0.1.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>Keytap</DisplayName>
     <PublisherDisplayName>blossqt</PublisherDisplayName>
@@ -38,6 +43,11 @@
   </Capabilities>
   <Applications>
     <Application Id="Keytap" Executable="Keytap.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="Keytap" Description="Bitwarden auto-type and passkeys"
+                          BackgroundColor="transparent" Square150x150Logo="package\logo-150.png"
+                          Square44x44Logo="package\logo-44.png"/>
+    </Application>
+    <Application Id="Passkeys" Executable="Keytap.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
       <uap:VisualElements AppListEntry="none" DisplayName="Keytap" Description="Bitwarden auto-type and passkeys"
                           BackgroundColor="transparent" Square150x150Logo="package\logo-150.png"
                           Square44x44Logo="package\logo-44.png"/>

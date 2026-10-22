@@ -15,9 +15,11 @@ Each of these waits on Windows or on the person, so they run off the UI thread.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -188,11 +190,47 @@ def needs_registering() -> bool:
     return not provider.identity()
 
 
+def running_version() -> str:
+    """The version of the package this Keytap runs as ('' for none), from its full name
+    (Blossqt.Keytap_1.0.1.0_x64__...)."""
+    from . import provider
+    parts = provider.identity().split('_')
+    return parts[1] if len(parts) > 2 else ''
+
+
 def outdated() -> bool:
-    """Whether Windows has an older package than the one beside Keytap.exe (re-registering it
-    closes the Keytap running as it, so that waits for Keytap to be quit and started again)."""
-    current = registered()
-    return current is not None and _version(current['version']) < _version(bundled_version())
+    """Whether this Keytap runs as an older package than the one beside Keytap.exe."""
+    running = running_version()
+    return bool(running) and _version(running) < _version(bundled_version())
+
+
+def update_and_restart(args: list[str]) -> None:
+    """Once this Keytap has quit, update the package to the one beside Keytap.exe and start
+    Keytap again with args.
+
+    Windows updates a package only once every program running as it has closed, and an
+    update tried while one runs leaves the package unable to start anything. So a PowerShell
+    does it - a program Keytap starts doesn't run as its package - after this Keytap has gone.
+    In place, as an update, not removed and added again. Should Windows still leave the
+    package broken, it is removed: Keytap then starts without it, and Settings > Passkeys
+    sets it up again."""
+    msix, here = _file('Keytap.msix'), folder()
+    if not msix or not here:
+        raise SetupError("Keytap's package is missing from its folder - reinstall Keytap.")
+
+    def quoted(text) -> str:
+        return "'" + str(text).replace("'", "''") + "'"
+    script = '\n'.join([
+        f'Wait-Process -Id {os.getpid()} -Timeout 30 -ErrorAction SilentlyContinue',
+        f'try {{ Add-AppxPackage -Path {quoted(msix)} -ExternalLocation {quoted(here)} -ForceApplicationShutdown '
+        '-ErrorAction Stop } catch { }',
+        f"$package = Get-AppxPackage -Name {PACKAGE}",
+        "if ($package -and $package.Status -ne 'Ok') { Remove-AppxPackage -Package $package.PackageFullName }",
+        f"Start-Process -FilePath {quoted(sys.executable)} -ArgumentList @({', '.join(quoted(a) for a in args)})",
+    ])
+    encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+    subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+                     creationflags=CREATE_NO_WINDOW, close_fds=True)
 
 
 def _version(text: str) -> tuple:

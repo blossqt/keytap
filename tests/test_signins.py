@@ -26,7 +26,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 app = QApplication.instance() or QApplication([])
 
-from keytap import cbor, p256, provider, signins  # noqa: E402
+from keytap import cbor, p256, package, provider, signins  # noqa: E402
 from keytap.vault import Login  # noqa: E402
 from test_passkeys import D, bitwarden_item, request_bytes  # noqa: E402
 
@@ -288,8 +288,9 @@ class HandOverTests(unittest.TestCase):
         self.started, self.sent = [], []
         self.answering_after = 2                 # COM's Keytap listens a moment after it serves
         self._patched = (provider.identity, provider.supported, provider.start_server, keytap_app.send,
-                         keytap_app.DEV, getattr(sys, 'frozen', None))
-        provider.identity = lambda: 'Blossqt.Keytap_test'
+                         keytap_app.DEV, getattr(sys, 'frozen', None), package.bundled_version)
+        provider.identity = lambda: 'Blossqt.Keytap_1.0.1.0_x64__9rwq6afdby7j6'
+        package.bundled_version = lambda: '1.0.1.0'
         provider.supported = lambda: True
         provider.start_server = lambda: self.started.append(True) or True
 
@@ -302,7 +303,7 @@ class HandOverTests(unittest.TestCase):
 
     def tearDown(self):
         (provider.identity, provider.supported, provider.start_server, self.app.send,
-         self.app.DEV, frozen) = self._patched
+         self.app.DEV, frozen, package.bundled_version) = self._patched
         if frozen is None:
             del sys.frozen
 
@@ -314,10 +315,55 @@ class HandOverTests(unittest.TestCase):
     def test_keytap_itself_when_it_cannot(self):
         provider.start_server = lambda: False
         self.assertFalse(self.app.hand_over('show'))
+        provider.start_server = lambda: self.fail('COM asked with no package, or an old one')
+        package.bundled_version = lambda: '1.0.2.0'          # runs as an older package than it brought
+        self.assertFalse(self.app.hand_over('show'))
         provider.identity = lambda: ''                       # passkeys not set up
-        provider.start_server = lambda: self.fail('COM asked without a package')
         self.assertFalse(self.app.hand_over('show'))
         self.assertEqual(self.sent, [])
+
+
+class PackageUpdateTests(unittest.TestCase):
+    """A Keytap that brings a newer package updates it, through a PowerShell, once it has quit."""
+
+    def setUp(self):
+        self._patched = (provider.identity, package.bundled_version, package._file, package.folder,
+                         package.subprocess)
+        provider.identity = lambda: 'Blossqt.Keytap_1.0.0.0_x64__9rwq6afdby7j6'
+        package.bundled_version = lambda: '1.0.1.0'
+        package._file = lambda name: Path(r"C:\Kit's\Keytap\package") / name
+        package.folder = lambda: Path(r"C:\Kit's\Keytap")
+        self.started = []
+        package.subprocess = SimpleNamespace(Popen=lambda args, **kw: self.started.append(args))
+
+    def tearDown(self):
+        (provider.identity, package.bundled_version, package._file, package.folder,
+         package.subprocess) = self._patched
+
+    def test_outdated(self):
+        self.assertEqual(package.running_version(), '1.0.0.0')
+        self.assertTrue(package.outdated())
+        package.bundled_version = lambda: '1.0.0.0'
+        self.assertFalse(package.outdated())
+        provider.identity = lambda: ''                        # no package at all: nothing to update
+        self.assertFalse(package.outdated())
+
+    def test_the_update_script(self):
+        import base64
+        import subprocess
+        package.update_and_restart(['--startup', '--package-updated'])
+        args = self.started[0]
+        script = base64.b64decode(args[args.index('-EncodedCommand') + 1]).decode('utf-16-le')
+        self.assertIn(f'Wait-Process -Id {os.getpid()}', script)
+        self.assertIn(r"Add-AppxPackage -Path 'C:\Kit''s\Keytap\package\Keytap.msix' "
+                      r"-ExternalLocation 'C:\Kit''s\Keytap' -ForceApplicationShutdown", script)
+        self.assertIn("-ArgumentList @('--startup', '--package-updated')", script)
+        self.assertLess(script.index('Add-AppxPackage'), script.index('Start-Process'))
+        check = ('$e = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:SCRIPT, '
+                 '[ref]$null, [ref]$e); $e.Count')
+        errors = subprocess.run(['powershell', '-NoProfile', '-Command', check], capture_output=True, text=True,
+                                env=dict(os.environ, SCRIPT=script)).stdout.strip()
+        self.assertEqual(errors, '0', script)
 
 
 if __name__ == '__main__':

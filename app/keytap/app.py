@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+import traceback
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -1029,12 +1030,14 @@ def send(message: str, reply: bool = False) -> str | None:
 
 
 def hand_over(message: str) -> bool:
-    """With passkeys set up, the Keytap that runs is one COM started, inside Keytap's package: the
-    only kind Windows calls for a passkey, and it keeps calling the one that runs. So a Keytap
-    started from its exe (from Start, with Windows, by Hanami) has COM start that one, passes on
-    what it was started for, and leaves. False when it can't: then it is Keytap itself."""
+    """With passkeys set up, the Keytap that runs is one COM started, as the package's "Passkeys"
+    app: the only kind Windows calls for a passkey, and it keeps calling the one that runs. So a
+    Keytap started from its exe (from Start, with Windows, by Hanami) has COM start that one,
+    passes on what it was started for, and leaves. False when it can't: then it is Keytap itself."""
     if DEV or not getattr(sys, 'frozen', False) or not provider.identity() or not provider.supported():
         return False
+    if package.outdated():
+        return False            # a package from before "Passkeys": Windows would end both Keytaps
     if not provider.start_server():
         return False
     deadline = time.monotonic() + 20       # it serves COM a moment before its local socket listens
@@ -1148,8 +1151,16 @@ def main(argv: list[str] | None = None) -> int:
     if '--send' in argv:
         print('Keytap is not running', file=sys.stderr)
         return 1
-    # Not hand_over(message): Windows ends a Keytap COM starts while one started from the exe runs,
-    # and that one with it - so for now each Keytap stays the one it was started as.
+    if '-Embedding' not in argv and not DEV and '--package-updated' not in argv and package.outdated():
+        # This Keytap brought a newer package: update it once this Keytap is gone, and start again.
+        try:
+            Settings().passkeys_told = False        # say so again should Windows have turned Keytap off
+            package.update_and_restart(argv[1:] + ['--package-updated'])
+            return 0
+        except (package.SetupError, OSError):
+            traceback.print_exc()
+    if '-Embedding' not in argv and hand_over(message):
+        return 0
 
     controller = Controller(startup=quiet, serve_passkeys='-Embedding' in argv)  # noqa: F841 - lives on
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())
