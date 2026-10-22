@@ -168,5 +168,87 @@ class VaultWindowTest(unittest.TestCase):
         self.assertEqual(web_vault('https://bw.example.org/'), 'https://bw.example.org')
 
 
+class RememberTests(unittest.TestCase):
+    """The picker's 'Always use', for the login chosen or for any login on its website."""
+
+    def pick(self, login_id: str, ticks: str, site_choice: bool = True) -> str:
+        from PySide6.QtCore import Qt
+
+        from keytap import matching
+        from keytap.ui.picker import Picker
+        picker = Picker(LOGINS, matching.find(matching_window(), LOGINS, {}), 'steam.exe',
+                        'Always use this login in steam.exe', site_choice=site_choice)
+        picker.list.setCurrentRow(next(i for i in range(picker.list.count())
+                                       if picker.list.item(i).data(Qt.UserRole)[0].id == login_id))
+        if 'login' in ticks:
+            picker.remember.setChecked(True)
+        if 'site' in ticks:
+            self.assertTrue(picker.whole_site.isVisibleTo(picker), 'offered for a login with a website')
+            picker.whole_site.setChecked(True)
+        got = []
+        picker.chosen.connect(lambda login, action, remember: got.append((login.id, remember)))
+        picker._choose('all')
+        return got[0]
+
+    def test_remember_a_login_or_its_website(self):
+        self.assertEqual(self.pick('1', ''), ('1', ''))
+        self.assertEqual(self.pick('1', 'login'), ('1', 'login'))
+        self.assertEqual(self.pick('1', 'site'), ('1', 'site'), 'ticking it ticks "Always use" too')
+        self.assertEqual(self.pick('1', 'login site'), ('1', 'site'))
+        self.assertEqual(self.pick('2', 'site'), ('2', 'site'))
+
+    def test_not_offered_without_a_website_or_on_a_web_page(self):
+        from keytap import matching
+        from keytap.ui.picker import Picker
+        picker = Picker(LOGINS, [], 'steam.exe', 'Always use this login in steam.exe', site_choice=True)
+        picker.search.setText('Bank')                      # no website saved for it
+        self.assertFalse(picker.whole_site.isVisibleTo(picker))
+        picker = Picker(LOGINS, matching.find(matching_window(), LOGINS, {}), 'steampowered.com',
+                        'Always use this login on steampowered.com', site_choice=False)
+        self.assertFalse(picker.whole_site.isVisibleTo(picker))
+
+    def test_settings_turn_a_remembered_login_into_its_website(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QListWidget, QListWidgetItem
+
+        from keytap import matching
+        from keytap.app import Controller
+        from keytap.ui import dialogs
+
+        class Owner:                        # the controller, as far as remembered programs go
+            logins, unlocked = list(LOGINS), True
+            link_target, login_site, login_name = Controller.link_target, Controller.login_site, Controller.login_name
+
+        class Page:                         # the settings dialog's remembered programs, alone
+            controller, _links = Owner(), QListWidget()
+            _show_link, _links_to_sites = dialogs.SettingsDialog._show_link, dialogs.SettingsDialog._links_to_sites
+
+        page = Page()
+        page._links.setSelectionMode(QListWidget.ExtendedSelection)        # as in the dialog
+        for key, value in {'steam.exe': '1', 'notepad.exe': '4'}.items():
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, (key, value))
+            page._show_link(item)
+            page._links.addItem(item)
+            item.setSelected(True)
+        told, information = [], dialogs.QMessageBox.information
+        dialogs.QMessageBox.information = lambda *args: told.append(args[2])
+        try:
+            page._links_to_sites()
+        finally:
+            dialogs.QMessageBox.information = information
+        items = [page._links.item(i) for i in range(page._links.count())]
+        self.assertEqual(dict(item.data(Qt.UserRole) for item in items),
+                         {'steam.exe': matching.SITE_LINK + 'steampowered.com', 'notepad.exe': '4'})
+        self.assertEqual(items[0].text(), 'steam.exe  →  any login for steampowered.com')
+        self.assertEqual(items[1].text(), 'notepad.exe  →  Bank')
+        self.assertIn('no website', told[0], 'the Bank login has none')
+
+
+def matching_window():
+    from keytap.win32 import WindowInfo
+    return WindowInfo(hwnd=1, title='Steam', class_name='X', pid=1, exe_path='C:\\Steam\\steam.exe')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QListWidgetItem, QMessageBox, QPushButton, QSpinBox, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from .. import __version__, background, hotkeys, sequence, win32
+from .. import __version__, background, hotkeys, matching, sequence, win32
 from ..settings import IDLE_CHOICES
 from ..vault import SERVERS, Bitwarden, Status
 from . import icons
@@ -319,25 +319,30 @@ class SettingsDialog(QDialog):
         layout.addWidget(_heading('Remembered programs'))
         self._links = QListWidget()
         self._links.setMaximumHeight(120)
-        for key, login_id in sorted(self.settings.links.items()):
-            program, _, title = key.partition('|')
-            if title.startswith('site:'):         # a web page in the program, by its website
-                where = f'{title[5:]} in {program}'
-            else:
-                where = f'{program}, “{title}”' if title else program
-            item = QListWidgetItem(f'{where}  →  {controller.login_name(login_id)}')
-            item.setData(Qt.UserRole, key)
+        self._links.setSelectionMode(QListWidget.ExtendedSelection)
+        for key, value in sorted(self.settings.links.items()):
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, (key, value))
+            self._show_link(item)
             self._links.addItem(item)
         forget = QPushButton('Forget')
         forget.clicked.connect(lambda: [self._links.takeItem(self._links.row(i))
                                         for i in self._links.selectedItems()])
+        whole_site = QPushButton('Any login for\nits website')
+        whole_site.setToolTip('Other accounts on the same website count too, not only the login you chose')
+        whole_site.clicked.connect(self._links_to_sites)
         if not self._links.count():
             self._links.addItem('None yet - tick “Always use” in the picker')
             self._links.setEnabled(False)
             forget.setEnabled(False)
+            whole_site.setEnabled(False)
+        buttons = QVBoxLayout()
+        buttons.addWidget(forget)
+        buttons.addWidget(whole_site)
+        buttons.addStretch(1)
         row = QHBoxLayout()
         row.addWidget(self._links, 1)
-        row.addWidget(forget, 0, Qt.AlignTop)
+        row.addLayout(buttons)
         layout.addLayout(row)
         layout.addStretch(1)
 
@@ -472,6 +477,38 @@ class SettingsDialog(QDialog):
             self.controller.sign_out()
             self.reject()
 
+    def _show_link(self, item: QListWidgetItem) -> None:
+        key, value = item.data(Qt.UserRole)
+        program, _, title = key.partition('|')
+        if title.startswith('site:'):         # a web page in the program, by its website
+            where = f'{title[5:]} in {program}'
+        else:
+            where = f'{program}, “{title}”' if title else program
+        item.setText(f'{where}  →  {self.controller.link_target(value)}')
+
+    def _links_to_sites(self) -> None:
+        """The chosen remembered programs: any login for the website of the login each was tied to."""
+        items = self._links.selectedItems()
+        if not items:
+            QMessageBox.information(self, 'Keytap', 'Choose a remembered program in the list first.')
+            return
+        stuck = False
+        for item in items:
+            key, value = item.data(Qt.UserRole)
+            if value.startswith(matching.SITE_LINK):
+                continue
+            site = self.controller.login_site(value)
+            if site:
+                item.setData(Qt.UserRole, (key, matching.SITE_LINK + site))
+                self._show_link(item)
+            else:
+                stuck = True
+        if stuck:
+            QMessageBox.information(self, 'Keytap', 'Unlock Keytap first, so it can see which website the login is '
+                                    'for.' if not self.controller.unlocked else
+                                    'That login has no website saved in Bitwarden. Add the website to it there, '
+                                    'or choose another login in the picker.')
+
     def _save(self) -> None:
         keys = {}
         for action, edit in self._keys.items():
@@ -500,8 +537,7 @@ class SettingsDialog(QDialog):
         if self._muted.isEnabled():
             self.settings.inline_muted = [self._muted.item(i).text() for i in range(self._muted.count())]
         if self._links.isEnabled():
-            kept = {self._links.item(i).data(Qt.UserRole) for i in range(self._links.count())}
-            self.settings.links = {k: v for k, v in self.settings.links.items() if k in kept}
+            self.settings.links = dict(self._links.item(i).data(Qt.UserRole) for i in range(self._links.count()))
         if self._startup.isChecked() != win32.starts_with_windows():
             win32.set_start_with_windows(self._startup.isChecked())
         if self._tray.isChecked() != self.settings.tray_shown:

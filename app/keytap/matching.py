@@ -2,7 +2,8 @@
 
 A login is tied to a program in one of these ways, strongest first:
 - remembered: chosen in Keytap's picker with "Always use" ticked (kept on
-  this PC, never written to the vault);
+  this PC, never written to the vault) - that login, or, ticked for its
+  website, every login for that website (SITE_LINK);
 - a URI on the login in Bitwarden: app://steam.exe for a program (a full
   path works too), or title://Sign in to Steam for a window whose title
   contains that text (* and ? as wildcards);
@@ -93,6 +94,15 @@ _COMMON_HOST_LABELS = {'www', 'com', 'net', 'org', 'app', 'login', 'accounts', '
 class Match:
     login: object
     strength: str
+
+
+SITE_LINK = 'site:'      # a remembered choice for a website, 'site:riotgames.com', rather than a login's id
+
+
+def main_site(login) -> str:
+    """The website a login is first saved for ('' for none) - what tying a program to its website
+    ties it to."""
+    return next((site for site in (site_of(uri) for uri, _ in _rules(login)) if site), '')
 
 
 def page_site(page: str) -> str:
@@ -298,14 +308,17 @@ def find(window, logins, links: dict[str, str], page: str = '', just: str = '') 
     linked_id = links.get(link_key(window, page))
     if not linked_id and on_page:
         # Chosen for the program before Keytap knew the page: still good on its own website.
-        earlier = links.get(link_key(window))
-        if any(login.id == earlier and _sites(login) & on_page for login in logins):
+        earlier = links.get(link_key(window), '')
+        if earlier.startswith(SITE_LINK) and _also(earlier[len(SITE_LINK):]) & on_page or any(
+                login.id == earlier and _sites(login) & on_page for login in logins):
             linked_id = earlier
+    # Tied to a website: every login for it (by the names it also goes by, too).
+    linked_sites = _also(linked_id[len(SITE_LINK):]) if linked_id and linked_id.startswith(SITE_LINK) else set()
     strength = {}
     for login in logins:
         if just and login.id == just:
             strength[login.id] = JUST
-        elif linked_id and login.id == linked_id:
+        elif linked_id and login.id == linked_id or linked_sites and _sites(login) & linked_sites:
             strength[login.id] = LINKED
         elif any(uri_matches(uri, window) for uri, _ in _rules(login)):
             strength[login.id] = URI

@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
                                QStyle, QStyledItemDelegate)
 
-from ..matching import HINT, JUST, LINKED, PAGE, SITE, URI
+from ..matching import HINT, JUST, LINKED, PAGE, SITE, URI, main_site
 from . import icons, theme
 from .card import Card
 
@@ -79,10 +79,11 @@ class _Delegate(QStyledItemDelegate):
 
 
 class Picker(Card):
-    """chosen(login, action, remember) - action is one of ACTIONS' names."""
-    chosen = Signal(object, str, bool)
+    """chosen(login, action, remember) - action is one of ACTIONS' names; remember is '' (no),
+    'login' (always this login) or 'site' (any login for its website)."""
+    chosen = Signal(object, str, str)
 
-    def __init__(self, logins, matches, target_label: str, remember_label: str = ''):
+    def __init__(self, logins, matches, target_label: str, remember_label: str = '', site_choice: bool = False):
         super().__init__(460)
         self._logins = sorted(logins, key=lambda l: (not l.favorite, l.name.lower(), l.username.lower()))
         self._matches = matches
@@ -122,6 +123,17 @@ class Picker(Card):
         self.body.addWidget(self.remember)
         if remember_label:
             QShortcut(QKeySequence('Alt+A'), self, activated=self.remember.toggle)
+        # Or every login for the chosen one's website - other accounts there too.
+        self._site_choice = bool(remember_label) and site_choice
+        self.whole_site = QCheckBox()
+        self.whole_site.setFocusPolicy(Qt.NoFocus)
+        self.whole_site.setVisible(False)
+        self.whole_site.toggled.connect(lambda on: on and self.remember.setChecked(True))
+        self.remember.toggled.connect(lambda on: on or self.whole_site.setChecked(False))
+        self.body.addWidget(self.whole_site)
+        if self._site_choice:
+            QShortcut(QKeySequence('Alt+W'), self,
+                      activated=lambda: not self.whole_site.isHidden() and self.whole_site.toggle())
 
         hint = QLabel('Enter types it all  ·  Ctrl+U username  ·  Ctrl+P password  ·  Ctrl+T code\n'
                       'Right-click a login to copy from it instead')
@@ -133,7 +145,9 @@ class Picker(Card):
         for action, _, keys in ACTIONS:
             if action and keys != 'Return':
                 QShortcut(QKeySequence(keys), self, activated=lambda a=action: self._choose(a))
+        self.list.currentItemChanged.connect(lambda *_: self._show_site())
         self._refill()
+        self._show_site()
 
     # ------------------------------------------------------------------ the list
 
@@ -173,6 +187,12 @@ class Picker(Card):
         item = self.list.currentItem()
         return item.data(Qt.UserRole)[0] if item else None
 
+    def _show_site(self) -> None:
+        login = self.current()
+        site = main_site(login) if self._site_choice and login is not None else ''
+        self.whole_site.setText(f'Any login for {site}, not only this one  (Alt+W)')
+        self.whole_site.setVisible(bool(site))
+
     # ------------------------------------------------------------------ choosing
 
     def _choose(self, action: str) -> None:
@@ -180,7 +200,8 @@ class Picker(Card):
         if login is None or self._done:
             return
         self._done = True
-        remember = self.remember.isVisible() and self.remember.isChecked()
+        remember = '' if self.remember.isHidden() or not self.remember.isChecked() else \
+            'site' if not self.whole_site.isHidden() and self.whole_site.isChecked() else 'login'
         self.hide()
         self.chosen.emit(login, action, remember)
         self.close()

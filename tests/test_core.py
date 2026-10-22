@@ -144,6 +144,24 @@ class MatchingTests(unittest.TestCase):
         # Hints alone never type by themselves.
         self.assertIsNone(matching.sure_choice(matching.find(w, [b], {})))
 
+    def test_remembered_for_a_website(self):
+        w = window('Riot Client.exe', 'Riot Client')
+        main = Login('a', 'Riot (main)', 'main', 'x', uris=('https://auth.riotgames.com/login',))
+        alt = Login('b', 'Valorant alt', 'alt', 'y', uris=('playvalorant.com',))       # the same account, by Riot
+        never = Login('c', 'Riot old', 'old', 'z', uris=('https://riotgames.com',), uri_match=(matching.NEVER,))
+        other = Login('d', 'GitHub', 'me', 'w', uris=('https://github.com',))
+        self.assertEqual(matching.main_site(main), 'riotgames.com')
+        self.assertEqual(matching.main_site(Login('e', 'Notes', 'me', 'v')), '')
+        links = {matching.link_key(w): matching.SITE_LINK + 'riotgames.com'}
+        found = matching.find(w, [main, alt, never, other], links)
+        self.assertEqual([m.login.id for m in found if m.strength == matching.LINKED], ['a', 'b'])
+        self.assertNotIn('c', [m.login.id for m in found], 'set to never match')
+        self.assertIsNone(matching.sure_choice(found), 'two accounts there: the picker asks')
+        self.assertIs(matching.sure_choice(matching.find(w, [main, other], links)), main, 'one: typed at once')
+        # On a page of that website in the program, it still counts.
+        page = matching.find(w, [main, alt, other], links, 'https://auth.riotgames.com/authorize')
+        self.assertEqual([m.login.id for m in page if m.strength == matching.LINKED], ['a', 'b'])
+
     def test_same_site_as_the_remembered_login(self):
         # Steam's sign-in is steamwebhelper.exe; its logins are saved for its websites.
         w = window('steamwebhelper.exe', 'Sign in to Steam')

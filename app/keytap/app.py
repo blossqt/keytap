@@ -243,14 +243,17 @@ class Controller(QObject):
         shared = window.exe in matching.SHARED_PROGRAMS and not page
         remember = (f'Always use this login {"on" if page else "in"} {where}' if not shared or window.title.strip()
                     else '')
-        picker = Picker(self.logins, matches, where, remember)
+        # In a program (not on a web page, which is a website already): its website's logins, all of them.
+        picker = Picker(self.logins, matches, where, remember, site_choice=not page)
         picker.chosen.connect(lambda login, what, keep: self._picked(window, login, what, keep, page))
         self._show_card(picker, window.hwnd)
 
-    def _picked(self, window, login: Login, what: str, remember: bool, page: str = '') -> None:
+    def _picked(self, window, login: Login, what: str, remember: str, page: str = '') -> None:
+        """remember: '' (no), 'login' (always this login) or 'site' (any login for its website)."""
+        site = matching.main_site(login) if remember == 'site' else ''
         if remember:
             links = self.settings.links
-            links[matching.link_key(window, page)] = login.id
+            links[matching.link_key(window, page)] = matching.SITE_LINK + site if site else login.id
             self.settings.links = links
         self.use(login, what, window)
 
@@ -703,6 +706,16 @@ class Controller(QObject):
                 if not quiet:
                     self.toasts.show('Synced', f'{len(logins)} logins in your vault.')
         background.run(work, done)
+
+    def link_target(self, value: str) -> str:
+        """What a remembered choice (a login's id, or matching.SITE_LINK and a website) ties to, in words."""
+        if value.startswith(matching.SITE_LINK):
+            return f'any login for {value[len(matching.SITE_LINK):]}'
+        return self.login_name(value)
+
+    def login_site(self, login_id: str) -> str:
+        """The website a login is first saved for - '' for none, or while locked."""
+        return next((matching.main_site(login) for login in self.logins or [] if login.id == login_id), '')
 
     def login_name(self, login_id: str) -> str:
         for login in self.logins or []:
