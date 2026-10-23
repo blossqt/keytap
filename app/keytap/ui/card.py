@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from .. import win32
 from . import icons, theme
 
-SHADOW = 16
+SHADOW = 0 if theme.glass_on() else 16       # on glass, Windows draws the shadow
 RADIUS = 12
 PAD = 16
 
@@ -46,6 +46,7 @@ class Card(QWidget):
                          | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
+        theme.frost(self)
         self.setWindowIcon(icons.app_icon())
         self.setFixedWidth(width + 2 * SHADOW)
         self.setStyleSheet(theme.card_style())
@@ -108,6 +109,10 @@ class Card(QWidget):
         c = theme.colors()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        if theme.glass_on():
+            theme.paint_glass(painter, self.rect())
+            painter.end()
+            return
         card = QRectF(self.rect()).adjusted(SHADOW, SHADOW, -SHADOW, -SHADOW)
         theme.paint_shadow(painter, card, RADIUS, SHADOW - 2, c.shadow)
         painter.setPen(c.border)

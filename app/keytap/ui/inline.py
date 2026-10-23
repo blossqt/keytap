@@ -14,7 +14,7 @@ from ..matching import JUST, LINKED, PAGE, URI
 from . import icons, theme
 from .card import to_logical, to_physical
 
-SHADOW = 12
+SHADOW = 0 if theme.glass_on() else 12       # on glass, Windows draws the shadow
 HEADER = 30
 ROW = 42
 FOOTER = 28
@@ -35,6 +35,7 @@ class InlineMenu(QWidget):
                          | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        theme.frost(self)
         self.setMouseTracking(True)
         self.field = None
         self.program = ''
@@ -153,10 +154,13 @@ class InlineMenu(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         card = self._card
-        theme.paint_shadow(p, card, 10, SHADOW - 2, c.shadow)
-        p.setPen(c.border)
-        p.setBrush(c.card)
-        p.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
+        if theme.glass_on():
+            theme.paint_glass(p, card)
+        else:
+            theme.paint_shadow(p, card, 10, SHADOW - 2, c.shadow)
+            p.setPen(c.border)
+            p.setBrush(c.card)
+            p.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
 
         p.drawPixmap(int(card.left() + 12), int(card.top() + 8), icons.render_app_icon(16))
         p.setFont(theme.font(8.5, QFont.DemiBold))

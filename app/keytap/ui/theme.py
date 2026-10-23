@@ -21,5 +21,8 @@ class Colors(suitetheme.Colors):
 
 
 def colors() -> Colors:
-    hover = QColor('#2c2d35') if is_dark() else QColor('#f1f2f6')
+    if suitetheme.glass_on():
+        hover = QColor(255, 255, 255, 24) if is_dark() else QColor(0, 0, 0, 14)
+    else:
+        hover = QColor('#2c2d35') if is_dark() else QColor('#f1f2f6')
     return Colors(**vars(suitetheme.colors()), hover=hover)

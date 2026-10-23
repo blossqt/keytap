@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 from .. import __version__, background, hotkeys, matching, sequence, win32
 from ..settings import IDLE_CHOICES
 from ..vault import SERVERS, Bitwarden, Status
-from . import icons
+from . import icons, theme
 
 
 def _heading(text: str) -> QLabel:
@@ -59,6 +59,7 @@ class SignInDialog(QDialog):
 
     def __init__(self, vault: Bitwarden, status: Status, parent=None):
         super().__init__(parent)
+        theme.frost(self)
         self.vault = vault
         self._console = None
         self.setWindowTitle('Sign in to Bitwarden')
@@ -182,6 +183,7 @@ class SignInDialog(QDialog):
 class SettingsDialog(QDialog):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
+        theme.frost(self)
         self.controller = controller
         self.settings = controller.settings
         self.setWindowTitle('Keytap settings')
@@ -553,6 +555,7 @@ class WelcomeDialog(QDialog):
 
     def __init__(self, hotkeys_now: dict[str, str], signed_in: bool, parent=None):
         super().__init__(parent)
+        theme.frost(self)
         self.setWindowTitle('Keytap')
         self.setWindowIcon(icons.app_icon())
         self.setMinimumWidth(460)
