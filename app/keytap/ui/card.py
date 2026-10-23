@@ -49,7 +49,7 @@ class Card(QWidget):
         theme.frost(self)
         self.setWindowIcon(icons.app_icon())
         self.setFixedWidth(width + 2 * SHADOW)
-        self.setStyleSheet(theme.card_style())
+        theme.restyle(self, theme.card_style)
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(SHADOW + PAD, SHADOW + PAD - 2, SHADOW + PAD, SHADOW + PAD)
         self.body.setSpacing(10)

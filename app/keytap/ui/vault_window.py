@@ -635,10 +635,10 @@ class VaultWindow(QWidget):
         self.setWindowTitle('Keytap')
         self.setWindowIcon(icons.app_icon())
         self.setObjectName('vault')
-        theme.frost(self)
+        theme.frost(self, backdrop=theme.BACKDROP)
         self.resize(1000, 640)
         self.setMinimumSize(740, 480)
-        self._apply_style()
+        theme.restyle(self, self._style)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -663,25 +663,25 @@ class VaultWindow(QWidget):
 
     # ------------------------------------------------------------------ building
 
-    def _apply_style(self) -> None:
+    def _style(self) -> str:
         c = theme.colors()
         border = c.border.name(QColor.HexArgb)
-        self.setStyleSheet(theme.card_style() + f"""
+        pill = 14 if theme.liquid_controls_css() else 8
+        return theme.card_style() + theme.panel_css('QFrame#sectionBox', 10) + f"""
             QWidget#vault {{ background: {theme.css(c.card)}; }}
             QWidget#header {{ background: {theme.css(c.card)}; border-bottom: 1px solid {border}; }}
             QWidget#sidebar {{ background: {theme.css(c.tile)}; border-right: 1px solid {border}; }}
             QWidget#listPane {{ border-right: 1px solid {border}; }}
             QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
-            QFrame#sectionBox {{ background: {theme.css(c.tile)}; border: 1px solid {border}; border-radius: 10px; }}
             QFrame#rule {{ background: {border}; border: none; margin: 0 12px; }}
             QListWidget#filters {{ background: transparent; border: none; outline: none; }}
-            QListWidget#filters::item {{ color: {c.text.name()}; padding: 7px 8px; border-radius: 8px; }}
+            QListWidget#filters::item {{ color: {c.text.name()}; padding: 7px 8px; border-radius: {pill}px; }}
             QListWidget#filters::item:selected {{ background: {c.selected.name()}; color: {c.selected_text.name()}; }}
             QListWidget#filters::item:hover:!selected {{ background: {theme.css(c.hover)}; }}
             QListWidget#logins {{ background: transparent; border: none; outline: none; }}
             QTextEdit#text {{ color: {c.text.name()}; background: transparent; border: none;
                               selection-background-color: {theme.ACCENT}; selection-color: {theme.ON_ACCENT}; }}
-        """)
+        """
 
     def _header(self) -> QWidget:
         bar = QWidget()

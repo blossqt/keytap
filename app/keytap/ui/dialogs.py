@@ -183,7 +183,7 @@ class SignInDialog(QDialog):
 class SettingsDialog(QDialog):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
-        theme.frost(self)
+        theme.frost(self, backdrop=theme.BACKDROP)
         self.controller = controller
         self.settings = controller.settings
         self.setWindowTitle('Keytap settings')

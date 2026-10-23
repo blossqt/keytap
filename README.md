@@ -278,3 +278,8 @@ Builds, checks the exe is the version in `app\keytap\__init__.py` (keep
 `build\version_info.txt` in step), zips it, signs `latest.json` with the key in
 `~\.keytap\release\`, and publishes the release Hanami installs from. See the
 top of `build\release.py`. The script is Hanami's, copied here.
+
+## Photo
+
+The cherry blossom faintly behind Keytap's vault and settings windows is a photo by AJ on Unsplash
+(https://unsplash.com/photos/McsNra2VRQQ), used under the Unsplash License.

@@ -7,12 +7,16 @@ step across the suite's apps - plus the one Keytap adds below.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtGui import QColor
 
 from . import suitetheme
 from .suitetheme import *  # noqa: F401,F403 - the suite's look, used as theme.<name>
 from .suitetheme import is_dark
+
+
+BACKDROP = str(Path(__file__).with_name('backdrop.jpg'))     # AJ's blossom, on Unsplash, faint behind the windows
 
 
 @dataclass(frozen=True)
