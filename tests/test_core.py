@@ -504,6 +504,28 @@ class FakeVaultTests(unittest.TestCase):
         log = (self.folder / 'vault.log').read_text()
         self.assertNotIn(self.password, log)      # never on a command line
 
+    def test_saving_a_new_passkey(self):
+        from keytap import passkeys
+        state = json.loads(self.state.read_text())
+        state['signed_in'] = True
+        self.state.write_text(json.dumps(state))
+        self.vault.unlock(self.password)
+        request = passkeys.NewRequest(rp_id='github.com', client_data_hash=b'\0' * 32, user_id=b'user-1',
+                                      rp_name='GitHub', user_name='gaben', algorithms=(passkeys.ES256,))
+        key = passkeys.make(request)
+        record = passkeys.record(key)
+        made = self.vault.add_passkey(record, name='GitHub', site='github.com')
+        added = next(l for l in self.vault.logins() if l.id == made)
+        self.assertEqual((added.name, added.username, added.uris), ('GitHub', 'gaben', ('https://github.com',)))
+        self.assertEqual(added.passkeys[0].credential_id, key.credential_id, 'read back as it was made')
+        self.assertEqual(added.passkeys[0].key, key.key)
+        self.vault.add_passkey(passkeys.record(passkeys.make(request)), '1')       # to Steam's login
+        steam = next(l for l in self.vault.logins() if l.id == '1')
+        self.assertEqual((steam.password, len(steam.passkeys)), ('hl3', 1), 'the rest of the login as it was')
+        log = (self.folder / 'vault.log').read_text()
+        self.assertNotIn(record['keyValue'], log, 'the key never on a command line')
+        self.assertIn('create item\n', log)
+
     def test_console_command_lines(self):
         line, env = self.vault.sign_in_command()
         self.assertTrue(line.startswith('cmd.exe /d /c "title '))

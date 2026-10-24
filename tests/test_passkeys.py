@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
 
 from keytap import cbor, p256, passkeys  # noqa: E402
-from keytap.passkeys import Passkey, PasskeyError, Request  # noqa: E402
+from keytap.passkeys import NewRequest, Passkey, PasskeyError, Request  # noqa: E402
 from keytap.vault import Login  # noqa: E402
 
 D = 0xC9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721       # RFC 6979's P-256 test key
@@ -44,6 +44,15 @@ def request_bytes(rp='github.com', allow=(), uv=True) -> bytes:
     message = {1: rp, 2: hashlib.sha256(b'client data').digest(), 5: {'up': True, 'uv': uv}}
     if allow:
         message[3] = [{'id': cid, 'type': 'public-key'} for cid in allow]
+    return cbor.dumps(message)
+
+
+def new_request_bytes(rp='github.com', algorithms=(-257, -7), exclude=(), rk=True) -> bytes:
+    message = {1: hashlib.sha256(b'client data').digest(), 2: {'id': rp, 'name': 'GitHub'},
+               3: {'id': b'user-1234', 'name': 'blossqt', 'displayName': 'Blossqt'},
+               4: [{'alg': alg, 'type': 'public-key'} for alg in algorithms], 7: {'rk': rk, 'uv': True}}
+    if exclude:
+        message[5] = [{'id': cid, 'type': 'public-key'} for cid in exclude]
     return cbor.dumps(message)
 
 
@@ -119,6 +128,53 @@ class PasskeyTests(unittest.TestCase):
         with self.assertRaises(PasskeyError):
             passkeys.answer(counting, request, verified=True)
 
+    def test_a_new_passkey_is_made_and_kept_as_bitwarden_keeps_one(self):
+        request = NewRequest.parse(new_request_bytes())
+        self.assertEqual((request.rp_id, request.user_id, request.who, request.algorithms, request.resident),
+                         ('github.com', b'user-1234', 'blossqt', (-257, -7), True))
+        key = passkeys.make(request)
+        self.assertEqual(len(key.credential_id), 16, 'a GUID, as Bitwarden makes')
+        record = passkeys.record(key)
+        self.assertEqual({k: record[k] for k in ('keyType', 'keyAlgorithm', 'keyCurve', 'counter', 'discoverable')},
+                         {'keyType': 'public-key', 'keyAlgorithm': 'ECDSA', 'keyCurve': 'P-256', 'counter': '0',
+                          'discoverable': 'true'})
+        self.assertRegex(record['creationDate'], r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$')
+        again = Passkey.from_bitwarden('item-9', record)                # as Keytap reads it back from the vault
+        self.assertEqual((again.credential_id, again.key, again.user_handle, again.rp_name),
+                         (key.credential_id, key.key, b'user-1234', 'GitHub'))
+        self.assertEqual(p256.private_key_from_pkcs8(key.key), p256.private_key_from_pkcs8(again.key))
+        with self.assertRaises(PasskeyError):
+            passkeys.make(NewRequest.parse(new_request_bytes(algorithms=(-257,))))     # RSA only
+
+    def test_a_new_passkeys_answer(self):
+        request = NewRequest.parse(new_request_bytes())
+        key = passkeys.make(request)
+        response = cbor.loads(passkeys.attestation(key, verified=True))
+        self.assertEqual((response[1], response[3]), ('none', {}))
+        data = response[2]
+        self.assertEqual(data[:32], hashlib.sha256(b'github.com').digest())
+        self.assertEqual(data[32], 0x5d, 'present, verified, backup eligible, backed up, with the new key')
+        self.assertEqual(data[33:37], b'\0\0\0\0')
+        self.assertEqual(data[37:53], passkeys.AAGUID.bytes)
+        self.assertEqual(int.from_bytes(data[53:55], 'big'), 16)
+        self.assertEqual(data[55:71], key.credential_id)
+        public = cbor.loads(data[71:])
+        x, y = p256.public_key(p256.private_key_from_pkcs8(key.key))
+        self.assertEqual(public, {1: 2, 3: -7, -1: 1, -2: x.to_bytes(32, 'big'), -3: y.to_bytes(32, 'big')})
+        message = b'sign in later'
+        self.assertTrue(p256.verify((x, y), message, p256.sign(p256.private_key_from_pkcs8(key.key), message)))
+
+    def test_already_saved_for_this_account(self):
+        request = NewRequest.parse(new_request_bytes(exclude=[uuid.UUID(GUID).bytes]))
+        self.assertTrue(passkeys.excluded([self.passkey], request))
+        self.assertFalse(passkeys.excluded([self.passkey], NewRequest.parse(new_request_bytes())))
+
+    def test_new_requests_that_cant_be_read(self):
+        with self.assertRaises(PasskeyError):
+            NewRequest.parse(cbor.dumps({1: b'short', 2: {'id': 'github.com'}, 3: {'id': b'u'}}))
+        with self.assertRaises(PasskeyError):
+            NewRequest.parse(cbor.dumps({1: b'\0' * 32, 2: {'id': 'github.com'}}))          # no user
+
     def test_requests_windows_sends(self):
         with self.assertRaises(PasskeyError):
             Request.parse(b'\x02' + request_bytes())        # CTAP's command byte: Windows leaves it off
@@ -187,11 +243,55 @@ def windows_encoding(response: dict) -> bytes:
     return bytes(out[:out_size.value])
 
 
+class _Attestation(Structure):
+    """WEBAUTHN_CREDENTIAL_ATTESTATION, version 8 - the one this Windows' encoder takes."""
+    _fields_ = [('dwVersion', w.DWORD), ('pwszFormatType', c_wchar_p),
+                ('cbAuthenticatorData', w.DWORD), ('pbAuthenticatorData', POINTER(c_ubyte)),
+                ('cbAttestation', w.DWORD), ('pbAttestation', POINTER(c_ubyte)),
+                ('dwAttestationDecodeType', w.DWORD), ('pvAttestationDecode', c_void_p),
+                ('cbAttestationObject', w.DWORD), ('pbAttestationObject', POINTER(c_ubyte)),
+                ('cbCredentialId', w.DWORD), ('pbCredentialId', POINTER(c_ubyte)),
+                ('Extensions', _Extensions), ('dwUsedTransport', w.DWORD),
+                ('bEpAtt', w.BOOL), ('bLargeBlobSupported', w.BOOL), ('bResidentKey', w.BOOL),
+                ('bPrfEnabled', w.BOOL), ('cbUnsignedExtensionOutputs', w.DWORD),
+                ('pbUnsignedExtensionOutputs', POINTER(c_ubyte)), ('pHmacSecret', c_void_p),
+                ('bThirdPartyPayment', w.BOOL), ('dwTransports', w.DWORD), ('cbClientDataJSON', w.DWORD),
+                ('pbClientDataJSON', POINTER(c_ubyte)), ('cbRegistrationResponseJSON', w.DWORD),
+                ('pbRegistrationResponseJSON', POINTER(c_ubyte))]
+
+
+def windows_attestation(data: bytes, credential_id: bytes) -> bytes:
+    keep = [(c_ubyte * len(data)).from_buffer_copy(data), (c_ubyte * len(credential_id)).from_buffer_copy(credential_id)]
+    a = _Attestation()
+    a.dwVersion, a.pwszFormatType = 8, 'none'
+    a.cbAuthenticatorData, a.pbAuthenticatorData = len(data), keep[0]
+    a.cbCredentialId, a.pbCredentialId = len(credential_id), keep[1]
+    out_size, out = w.DWORD(), POINTER(c_ubyte)()
+    hr = ctypes.WinDLL('webauthn.dll').WebAuthNEncodeMakeCredentialResponse(ctypes.byref(a), ctypes.byref(out_size),
+                                                                           ctypes.byref(out))
+    if hr:
+        raise OSError(hr & 0xffffffff, 'WebAuthNEncodeMakeCredentialResponse')
+    return bytes(out[:out_size.value])
+
+
 class WindowsEncodingTests(unittest.TestCase):
     def test_same_bytes_as_windows_encodes(self):
         passkey = Login.from_item(bitwarden_item()).passkeys[0]
         ours = passkeys.answer(passkey, Request.parse(request_bytes()), verified=True)
         self.assertEqual(ours, windows_encoding(cbor.loads(ours)))
+
+    def test_a_new_passkeys_answer_is_what_windows_encodes(self):
+        key = passkeys.make(NewRequest.parse(new_request_bytes()))
+        ours = passkeys.attestation(key, verified=True)
+        self.assertEqual(ours, windows_attestation(cbor.loads(ours)[2], key.credential_id))
+
+    def test_windows_reads_our_new_request_encoding(self):
+        data = new_request_bytes(exclude=[b'\x07' * 16])
+        raw = (c_ubyte * len(data)).from_buffer_copy(data)
+        decoded = c_void_p()
+        dll = ctypes.WinDLL('webauthn.dll')
+        self.assertEqual(dll.WebAuthNDecodeMakeCredentialRequest(len(data), raw, ctypes.byref(decoded)), 0)
+        dll.WebAuthNFreeDecodedMakeCredentialRequest(decoded)
 
     def test_windows_reads_our_request_encoding(self):
         data = request_bytes(allow=[b'\x07' * 16])

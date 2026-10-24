@@ -10,6 +10,7 @@ The session key it hands out is kept in that file too, so status reports
 "unlocked" only to a caller holding it, as bw does.
 """
 
+import base64
 import json
 import os
 import secrets
@@ -87,6 +88,27 @@ def main(args: list[str]) -> None:
         print(json.dumps(state['items']))
     elif args[:2] == ['list', 'folders']:
         print(json.dumps(state.get('folders', [])))
+    elif args[:2] == ['get', 'item']:
+        found = next((i for i in state['items'] if i.get('id') == args[2]), None)
+        if found is None:
+            fail('Not found.')
+        print(json.dumps(found))
+    elif args[:2] in (['create', 'item'], ['edit', 'item']):
+        # As bw: the item, base64-encoded JSON, on the command line or else on standard input.
+        encoded = args[3] if args[0] == 'edit' and len(args) > 3 else args[2] if args[0] == 'create' and len(args) > 2 \
+            else sys.stdin.read()
+        made = json.loads(base64.b64decode(encoded.strip()))
+        if args[0] == 'edit':
+            index = next((n for n, i in enumerate(state['items']) if i.get('id') == args[2]), None)
+            if index is None:
+                fail('Not found.')
+            made['id'] = args[2]
+            state['items'][index] = made
+        else:
+            made['id'] = f'made-{len(state["items"]) + 1}'
+            state['items'].append(made)
+        save(state)
+        print(json.dumps(made))
     elif command == 'sync':
         print('Syncing complete.')
     else:

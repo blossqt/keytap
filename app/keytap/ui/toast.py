@@ -49,6 +49,9 @@ class Toast(QWidget):
         return QRectF(self._card.right() - 128, self._card.bottom() - 30, 116, 22)
 
     def close_toast(self) -> None:
+        theme.fade_out(self, self._closed)
+
+    def _closed(self) -> None:
         self.hide()
         self.closed.emit(self)
         self.deleteLater()

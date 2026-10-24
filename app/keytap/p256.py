@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 
 # The curve: y^2 = x^3 - 3x + b over the prime field p, with base point G of order n.
 P = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
@@ -118,15 +119,25 @@ def private_key_from_pkcs8(der: bytes) -> int:
     return d
 
 
-def pkcs8_from_private_key(d: int) -> bytes:
-    """The other way round, for tests and for making keys: PKCS#8 without the optional public key."""
+def pkcs8_from_private_key(d: int, with_public: bool = False) -> bytes:
+    """The other way round, for tests and for making keys: PKCS#8 - with the optional public key
+    too if with_public, as browsers' WebCrypto exports a key (and some only import it so)."""
     def element(tag: int, content: bytes) -> bytes:
         size = len(content)
         length = bytes([size]) if size < 128 else bytes([0x81, size])
         return bytes([tag]) + length + content
     algorithm = element(0x30, element(0x06, _EC_PUBLIC_KEY) + element(0x06, _PRIME256V1))
-    ec_key = element(0x30, element(0x02, b'\x01') + element(0x04, d.to_bytes(32, 'big')))
+    parts = element(0x02, b'\x01') + element(0x04, d.to_bytes(32, 'big'))
+    if with_public:
+        x, y = public_key(d)
+        parts += element(0xa1, element(0x03, b'\x00\x04' + x.to_bytes(32, 'big') + y.to_bytes(32, 'big')))
+    ec_key = element(0x30, parts)
     return element(0x30, element(0x02, b'\x00') + algorithm + element(0x04, ec_key))
+
+
+def new_private_key() -> int:
+    """A fresh private key, from the operating system's random numbers."""
+    return secrets.randbelow(N - 1) + 1
 
 
 # --------------------------------------------------------------------------- signatures

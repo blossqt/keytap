@@ -202,9 +202,9 @@ it.
 
 ## Passkeys
 
-Keytap can sign you in with the passkeys in your Bitwarden vault, without
-Bitwarden's own app. When a website or app asks for a passkey, Windows' passkey
-window lists Keytap. Choose it:
+Keytap can sign you in with the passkeys in your Bitwarden vault, and save new
+ones to it, without Bitwarden's own app. When a website or app asks for a
+passkey, Windows' passkey window lists Keytap. Choose it:
 
 1. Unlock Keytap if it's locked.
 2. If the site has several accounts, choose one.
@@ -214,9 +214,21 @@ window lists Keytap. Choose it:
 This works wherever Windows' passkey window comes up: Edge and Chrome without
 Bitwarden's extension, and apps built on web pages.
 
-Keytap only signs in. Save new passkeys with Bitwarden's browser extension or
-phone app. A passkey that counts its uses (a counter above 0, from an import)
-is also left to Bitwarden, which saves the count.
+**Saving a new passkey.** When a site offers to make you a passkey, choose
+Keytap in Windows' passkey window. Unlock Keytap if it's locked, and confirm
+with Windows Hello. The passkey goes to your vault:
+
+- **With the site's login for that account,** if it has one without a passkey.
+  Logins that ask for your master password again ask for it here too.
+- **Otherwise, in a new login** named after the site.
+
+It is saved to Bitwarden before the site hears of it, so a site never keeps a
+passkey your vault doesn't have. It then works in Bitwarden's own apps too.
+Keytap makes the kind of passkey Bitwarden makes (ES256), and turns down a
+site that asks for another kind.
+
+A passkey that counts its uses (a counter above 0, from an import) is left to
+Bitwarden, which saves the count.
 
 **Setting it up.** In Settings, go to **Passkeys** and choose **Set up passkeys**:
 

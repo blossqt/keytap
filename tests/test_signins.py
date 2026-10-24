@@ -84,7 +84,9 @@ def login(item_id, name, user, rp='github.com', reprompt=False):
     return Login.from_item(item)
 
 
-class SignInTests(unittest.TestCase):
+class _WindowsStandIns(unittest.TestCase):
+    """Windows' checks - that it signed the request, Windows Hello - stood in for."""
+
     def setUp(self):
         self.hello = []
         self.windows_signed = True
@@ -103,6 +105,8 @@ class SignInTests(unittest.TestCase):
     def tearDown(self):
         provider.from_windows, provider.verify_user, provider.identity = self._patched
 
+
+class SignInTests(_WindowsStandIns):
     def sign_in(self, person, data=None, cancel_after=None):
         """Windows' call, on a thread of its own; the UI thread runs meanwhile. (answer, refusal)."""
         handler = signins.PasskeySignIns(person)
@@ -200,6 +204,101 @@ class SignInTests(unittest.TestCase):
         self.assertEqual(self.sign_in(Person([login('a', 'GitHub', 'blossqt')]))[1], provider.E_ACCESSDENIED)
 
 
+class SavingTests(_WindowsStandIns):
+    """Saving a new passkey: Windows asks Keytap for one, and it goes to the vault."""
+
+    def make(self, person, data=None, saves=True):
+        from test_passkeys import new_request_bytes
+        person.saved = []
+
+        def add_passkey(record, login_id='', name='', site=''):
+            if not saves:
+                raise RuntimeError('Bitwarden is unreachable')
+            person.saved.append((login_id, name, site, record['userName']))
+            return login_id or 'made-1'
+        person.vault = SimpleNamespace(add_passkey=add_passkey)
+        person.synced = 0
+        person.sync = lambda quiet=False: setattr(person, 'synced', person.synced + 1)
+        handler = signins.PasskeySignIns(person)
+        op = SimpleNamespace(hwnd=0, transaction=uuid.uuid4(), data=data or new_request_bytes(), signature=b'signed')
+        result = {}
+
+        def call():
+            try:
+                result['answer'] = handler.make_credential(op)
+            except provider.Refusal as refusal:
+                result['refusal'] = refusal.hr
+        thread = threading.Thread(target=call)
+        thread.start()
+        started = time.monotonic()
+        while thread.is_alive() and time.monotonic() - started < 10:
+            app.processEvents()
+            time.sleep(0.005)
+        thread.join(1)
+        for _ in range(5):
+            app.processEvents()
+        return result.get('answer'), result.get('refusal')
+
+    def test_a_new_login_for_a_site_with_none(self):
+        person = Person([login('a', 'GitLab', 'blossqt', rp='gitlab.com')])
+        answer, refusal = self.make(person)
+        self.assertIsNone(refusal)
+        self.assertEqual(person.saved, [('', 'GitHub', 'github.com', 'blossqt')])
+        response = cbor.loads(answer)
+        self.assertEqual(response[1], 'none')
+        self.assertEqual(response[2][32] & 0x44, 0x44, 'verified, with the new key')
+        self.assertEqual(self.hello, ['blossqt'], 'Windows Hello checked it is you')
+        self.assertIn(('toast', 'For blossqt on github.com, as a new login.'), person.asked)
+        self.assertEqual(person.synced, 1, 'and the vault is read again, for Windows and sign-ins')
+
+    def test_with_the_sites_login_for_that_account(self):
+        github = login('a', 'GitHub', 'blossqt')
+        github = github.__class__(**{**github.__dict__, 'passkeys': (), 'uris': ('https://github.com/login',)})
+        person = Person([github, login('b', 'GitHub (work)', 'work-account')])
+        answer, refusal = self.make(person)
+        self.assertIsNone(refusal)
+        self.assertEqual(person.saved, [('a', 'GitHub', 'github.com', 'blossqt')])
+        self.assertIn(('toast', 'For blossqt on github.com, with your login GitHub.'), person.asked)
+
+    def test_one_the_site_already_has_is_not_made_again(self):
+        from test_passkeys import new_request_bytes
+        existing = login('a', 'GitHub', 'blossqt')
+        person = Person([existing])
+        answer, refusal = self.make(person, new_request_bytes(exclude=[existing.passkeys[0].credential_id]))
+        self.assertEqual(refusal, signins.NTE_EXISTS)
+        self.assertEqual(person.saved, [])
+
+    def test_locked_unlocking_is_the_check(self):
+        person = Person([], unlocked=False)
+        answer, refusal = self.make(person)
+        self.assertIsNone(refusal)
+        self.assertEqual(person.asked[0], ('unlock', 'to save a passkey for github.com'))
+        self.assertEqual(self.hello, [])
+
+    def test_not_saved_not_given(self):
+        person = Person([])
+        answer, refusal = self.make(person, saves=False)
+        self.assertEqual(refusal, provider.E_FAIL, 'Windows is told no: the website keeps nothing')
+        self.assertIn(('toast', 'Keytap could not save the passkey to your vault: Bitwarden is unreachable'),
+                      person.asked)
+
+    def test_a_kind_keytap_cannot_make(self):
+        from test_passkeys import new_request_bytes
+        person = Person([])
+        answer, refusal = self.make(person, new_request_bytes(algorithms=(-257,)))
+        self.assertEqual(refusal, provider.NTE_NOT_SUPPORTED)
+        self.assertEqual(person.saved, [])
+
+    def test_a_login_that_asks_for_the_master_password(self):
+        bank = login('a', 'Bank', 'blossqt', reprompt=True)
+        bank = bank.__class__(**{**bank.__dict__, 'passkeys': (), 'uris': ('https://github.com',)})
+        person = Person([bank])
+        answer, refusal = self.make(person)
+        self.assertIsNone(refusal)
+        self.assertEqual(person.asked[0], ('confirm', 'Bank'))
+        self.assertEqual(person.saved[0][0], 'a')
+
+
 class RelayTests(unittest.TestCase):
     """The Keytap Windows starts relaying to the running Keytap, over a local socket."""
 
@@ -266,6 +365,19 @@ class RelayTests(unittest.TestCase):
         self.assertEqual(response[1]['id'], self.person.logins[0].passkeys[0].credential_id)
         self.assertEqual(response[2][32] & 0x04, 0x04)
         self.assertEqual(self.through_relay(lambda relay: relay.unlocked())[0], True)
+
+    def test_relayed_new_passkey(self):
+        from test_passkeys import new_request_bytes
+        saved = []
+        self.person.vault = SimpleNamespace(add_passkey=lambda record, login_id='', name='', site='':
+                                            saved.append(site) or 'made-1')
+        self.person.sync = lambda quiet=False: None
+        self.op = SimpleNamespace(hwnd=0, transaction=uuid.uuid4(), data=new_request_bytes(rp='gitlab.com'),
+                                  signature=b'signed')
+        answer, refusal = self.through_relay(lambda relay: relay.make_credential(self.op))
+        self.assertIsNone(refusal)
+        self.assertEqual(cbor.loads(answer)[1], 'none')
+        self.assertEqual(saved, ['gitlab.com'], 'saved by the Keytap with the vault')
 
     def test_relayed_refusal_and_cancel(self):
         self.op = SimpleNamespace(hwnd=0, transaction=uuid.uuid4(), data=request_bytes(rp='gitlab.com'),

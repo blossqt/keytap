@@ -389,11 +389,11 @@ class SettingsDialog(QDialog):
 
         # ---------------------------------------------------------------- passkeys
         page, layout = _page(tabs, 'Passkeys')
-        layout.addWidget(_heading('Sign in with the passkeys in your vault'))
+        layout.addWidget(_heading('Passkeys in your vault'))
         layout.addWidget(_note(
             "When a website or app asks for a passkey, Windows' passkey window can offer Keytap. Keytap signs "
-            'in with the passkeys already in your Bitwarden vault, checking it is you with Windows Hello. It '
-            "doesn't save new passkeys: save those with Bitwarden's browser extension or app."))
+            'in with the passkeys in your Bitwarden vault, and saves new ones to it, checking it is you with '
+            "Windows Hello. A new passkey goes with the site's login for that account, or in a new login."))
         layout.addSpacing(6)
         self._passkey_steps = QLabel('Checking…')
         self._passkey_steps.setTextFormat(Qt.RichText)

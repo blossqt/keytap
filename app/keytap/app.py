@@ -543,7 +543,7 @@ class Controller(QObject):
         if state == 'disabled' and not self.settings.passkeys_told:
             self.settings.passkeys_told = True
             self.toasts.show('Turn Keytap on for passkeys', 'In Windows Settings: Accounts, Passkeys, Advanced '
-                             'options - then sites can use the passkeys in your vault.',
+                             'options - then sites can use the passkeys in your vault, and save new ones to it.',
                              action=('Open', self.open_passkey_settings))
 
     @staticmethod
@@ -1050,8 +1050,6 @@ class Controller(QObject):
                 self.signins.cancel(uuid.UUID(words[1]))
             except ValueError:
                 pass
-        elif words[0] == 'passkey-make':
-            self.signins.creating_refused()
         elif DEV and words[0] == 'state':
             # Development only (tests/): what Keytap is doing, never any secret.
             card = type(self.card).__name__ if self.card is not None else ''

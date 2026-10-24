@@ -204,9 +204,9 @@ class Bitwarden:
         return env
 
     def _run(self, *args: str, password: str | None = None, session: bool | str = True,
-             timeout: float = 120) -> str:
+             timeout: float = 120, given: str | None = None) -> str:
         """Run bw. `session` is True for the current session key, False for none,
-        or a key of its own."""
+        or a key of its own. `given` goes to bw on its standard input."""
         if not self.command:
             raise VaultError("Bitwarden's command-line tool is missing")
         self.data.mkdir(parents=True, exist_ok=True)
@@ -216,7 +216,8 @@ class Bitwarden:
         try:
             result = win32.run_hidden([*self.command, *args, '--nointeraction'], env=env,
                                       capture_output=True, text=True, encoding='utf-8', errors='replace',
-                                      stdin=subprocess.DEVNULL, timeout=timeout)
+                                      timeout=timeout, **({'input': given} if given is not None
+                                                          else {'stdin': subprocess.DEVNULL}))
         except subprocess.TimeoutExpired as error:
             raise VaultError('Bitwarden took too long to answer') from error
         except OSError as error:
@@ -319,3 +320,38 @@ class Bitwarden:
 
     def sync(self) -> None:
         self._run('sync')
+
+    def item(self, item_id: str) -> dict:
+        """One item, as `bw get item` gives it."""
+        if not self._session:
+            raise VaultError('The vault is locked')
+        return _json_from(self._run('get', 'item', item_id), '{')
+
+    def _save(self, item: dict, item_id: str = '') -> dict:
+        """Make an item - or, with item_id, change that one - giving bw the item on its standard
+        input, encoded as it takes it: never on its command line, where other programs could read
+        what is in it."""
+        encoded = base64.b64encode(json.dumps(item).encode('utf-8')).decode('ascii')
+        args = ('edit', 'item', item_id) if item_id else ('create', 'item')
+        return _json_from(self._run(*args, given=encoded), '{')
+
+    def add_passkey(self, record: dict, login_id: str = '', name: str = '', site: str = '') -> str:
+        """Save a new passkey (passkeys.record) to the login with login_id - which then has it in
+        place of any it had - or, without one, as a new login named name, for https://site.
+        The login's id."""
+        if not self._session:
+            raise VaultError('The vault is locked')
+        if login_id:
+            item = self.item(login_id)
+            login = item.get('login')
+            if not isinstance(login, dict):
+                raise VaultError('That item is not a login')
+            login['fido2Credentials'] = [record]
+            saved = self._save(item, login_id)
+        else:
+            uri = [{'match': None, 'uri': f'https://{site}'}] if site else []
+            saved = self._save({'type': 1, 'name': name or site, 'notes': None, 'favorite': False, 'fields': [],
+                                'reprompt': 0, 'folderId': None, 'organizationId': None, 'collectionIds': [],
+                                'login': {'username': record.get('userName') or None, 'password': None,
+                                          'totp': None, 'uris': uri, 'fido2Credentials': [record]}})
+        return str(saved.get('id') or login_id)
