@@ -45,6 +45,8 @@ from .ui.vault_window import VaultWindow, private_mime, sample_controller
 SERVER_NAME = os.environ.get('KEYTAP_INSTANCE') or f'keytap-{os.environ.get("USERNAME", "user")}'
 APP_ID = 'Suite.Keytap'
 DEV = os.environ.get('KEYTAP_DEV') == '1'
+ASKED_TOO_LONG = 2000           # ms a connection to Keytap's socket gets to say what it wants
+WARM_AFTER = 3000               # ms after Keytap starts: a card made unseen (_warm_up)
 CLIPBOARD_SECONDS = 30
 JUST_TYPED_SECONDS = 300           # a username-first sign-in's password page offers that login first
 # A page address that says it is a sign-in: accounts.google.com/v3/signin/identifier, login.live.com
@@ -136,10 +138,20 @@ class Controller(QObject):
             self.toasts.show("Bitwarden's command-line tool is missing",
                              'Reinstall Keytap - it comes with it.', error=True)
         win32.refresh_start_with_windows()
+        QTimer.singleShot(WARM_AFTER, self._warm_up)
         # Opened by hand: the vault. Started with Windows, or the very first time
         # (when the welcome comes up instead): just the tray and the hotkeys.
         if not startup and not DEV and self.settings.welcomed:
             QTimer.singleShot(0, self.show_vault)
+
+    def _warm_up(self) -> None:
+        """A picker made unseen, and dropped: the first card shown took three times as long as
+        the rest (0.4 s more after the hotkey), as Qt read its style sheets and fonts then. Not
+        while a game is in front: once it has gone."""
+        if theme.quiet_now():
+            QTimer.singleShot(WARM_AFTER, self._warm_up)
+            return
+        Picker([], [], '', '').deleteLater()
 
     # ------------------------------------------------------------------ account state
 
@@ -1016,8 +1028,22 @@ class Controller(QObject):
         self._server.listen(SERVER_NAME)
 
     def _connection(self) -> None:
-        socket = self._server.nextPendingConnection()
-        socket.waitForReadyRead(500)
+        """Someone at Keytap's socket - a second start of it, Hanami, or a passkey relay: what it
+        says is read once it has arrived. Waited for here, one that took its time froze Keytap."""
+        while self._server.hasPendingConnections():
+            socket = self._server.nextPendingConnection()
+            socket.readyRead.connect(lambda s=socket: self._asked(s))
+            # Through Qt once it has gone, so PySide forgets it too - and only then, so a reply
+            # still on its way isn't cut off.
+            socket.disconnected.connect(socket.deleteLater)
+            QTimer.singleShot(ASKED_TOO_LONG, socket, lambda s=socket: s.property('asked') or s.abort())
+            if socket.bytesAvailable():
+                self._asked(socket)
+
+    def _asked(self, socket) -> None:
+        if socket.property('asked'):
+            return
+        socket.setProperty('asked', True)
         message = bytes(socket.readAll()).decode('utf-8', 'replace').strip()
         if message.startswith('passkey '):
             # A relay, for Windows: answered once the person has done their part, not here.
@@ -1026,9 +1052,7 @@ class Controller(QObject):
         reply = self.command(message)
         if reply:
             socket.write(reply.encode('utf-8'))
-            socket.waitForBytesWritten(500)
-        socket.disconnectFromServer()
-        socket.deleteLater()      # through Qt, so PySide forgets it too, rather than leaving it to the server
+        socket.disconnectFromServer()               # once what was written has gone
 
     def command(self, message: str) -> str:
         words = message.split()

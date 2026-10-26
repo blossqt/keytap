@@ -124,10 +124,15 @@ class Run:
     # ------------------------------------------------------------------ Keytap
 
     def start(self) -> None:
+        # Windows Hello's file and the tray link of the test's own too: with the real file there, the
+        # unlock card went straight to a real Windows Hello prompt (2026-10-26), which only the
+        # person can answer.
         env = dict(os.environ, KEYTAP_DEV='1', KEYTAP_INSTANCE=INSTANCE,
                    KEYTAP_BW=str(HERE / 'fake_bw.py'), KEYTAP_FAKE_VAULT=str(self.vault),
                    KEYTAP_FAKE_DELAY='0.3', KEYTAP_BW_DATA=str(WORK / 'bw'),
-                   KEYTAP_SETTINGS=str(self.settings))
+                   KEYTAP_SETTINGS=str(self.settings), KEYTAP_HELLO_FILE=str(WORK / 'hello.json'),
+                   HANAMI_PIPE='hanami-tray-keytap-type-test')
+        env.pop('KEYTAP_FAKE_HELLO', None)
         self.process = subprocess.Popen([sys.executable, str(ROOT / 'app' / 'main.py')], env=env,
                                         stdout=open(WORK / 'keytap.log', 'w'), stderr=subprocess.STDOUT)
         self.wait(lambda: self.state().get('state') == 'locked', 20, 'Keytap to start')

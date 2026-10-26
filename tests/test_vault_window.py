@@ -250,5 +250,27 @@ def matching_window():
     return WindowInfo(hwnd=1, title='Steam', class_name='X', pid=1, exe_path='C:\\Steam\\steam.exe')
 
 
+
+class ToastTest(unittest.TestCase):
+    def test_a_fifth_toast_doesnt_hang_keytap(self):
+        # The oldest of five only starts fading; counted until it had faded, the stack went round
+        # for ever, and Keytap hung (until 2026-10-26). Should that come back, the test is stopped.
+        import faulthandler
+        from unittest import mock
+        from keytap.ui import suitetheme
+        from keytap.ui.toast import ToastStack
+        faulthandler.dump_traceback_later(20, exit=True)
+        try:
+            with mock.patch.object(suitetheme, 'motion_on', lambda: True):
+                stack = ToastStack()
+                for n in range(7):
+                    stack.show(f'Toast {n}')
+                self.assertEqual(stack.titles(), ['Toast 3', 'Toast 4', 'Toast 5', 'Toast 6'])
+                for toast in list(stack._toasts):
+                    toast.close_toast()
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

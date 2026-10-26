@@ -34,6 +34,7 @@ import fnmatch
 import ipaddress
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import PureWindowsPath
 from urllib.parse import urlparse
 
@@ -181,9 +182,24 @@ def uri_matches(uri: str, window) -> bool:
 
 
 def _word_in(word: str, text: str) -> bool:
-    return bool(word) and re.search(rf'(?<![\w]){re.escape(word)}(?![\w])', text) is not None
+    """Whether word is in text as a whole word, as (?<!\\w)word(?!\\w) would find it - without
+    the regular expression, which was compiled anew for each login's name, each time."""
+    if not word:
+        return False
+    at = text.find(word)
+    while at != -1:
+        end = at + len(word)
+        if not (at and _wordy(text[at - 1])) and not (end < len(text) and _wordy(text[end])):
+            return True
+        at = text.find(word, at + 1)
+    return False
 
 
+def _wordy(char: str) -> bool:
+    return char.isalnum() or char == '_'            # what \w matches
+
+
+@lru_cache(maxsize=8192)
 def _site_name(uri: str) -> str:
     """'github' for https://github.com/login - the part of a website's name people see."""
     try:
@@ -196,6 +212,7 @@ def _site_name(uri: str) -> str:
     return labels[-1] if len(labels) == 1 else labels[-2] if len(labels[-1]) <= 3 else labels[-1]
 
 
+@lru_cache(maxsize=8192)
 def site_of(uri: str) -> str:
     """'steampowered.com' for https://store.steampowered.com/login - the website a URI is
     on, without its subdomains - or '' for a program, a window title or no website at all."""
@@ -220,9 +237,10 @@ def site_of(uri: str) -> str:
     return '.'.join(labels[-keep:])
 
 
-def _also(site: str) -> set[str]:
+@lru_cache(maxsize=4096)
+def _also(site: str) -> frozenset[str]:
     """A website with the names it also goes by."""
-    return set(next((group for group in _SAME_SITES if site in group), {site}))
+    return next((group for group in _SAME_SITES if site in group), frozenset({site}))
 
 
 def _rules(login) -> list[tuple[str, int | None]]:
@@ -232,6 +250,7 @@ def _rules(login) -> list[tuple[str, int | None]]:
     return [(uri, kind) for uri, kind in pairs if kind != NEVER]
 
 
+@lru_cache(maxsize=8192)
 def _host(uri: str) -> str:
     """'github.com' or 'example.com:8443' - the host and any port, as Bitwarden's host matching
     compares them."""
@@ -278,13 +297,23 @@ def _is_web(uri: str) -> bool:
 
 
 def hints_at(login, window, page: str = '') -> bool:
+    return _hints(window, page)(login)
+
+
+def _hints(window, page: str = ''):
+    """hints_at for one window (or page), as a test of a login: what the window says worked out
+    once, not again for each login."""
     if page:
         # On a web page the program says nothing: it could be showing any website.
-        name = _site_name(page)
-        return len(name) >= 4 and (_word_in(name, login.name.lower()) or any(
-            _site_name(uri) == name for uri, _ in _rules(login) if _is_web(uri)))
+        named = _site_name(page)
+        return lambda login: len(named) >= 4 and (_word_in(named, login.name.lower()) or any(
+            _site_name(uri) == named for uri, _ in _rules(login) if _is_web(uri)))
     title = window.title.lower()
     stem = PureWindowsPath(window.exe).stem.lower() if window.exe else ''
+    return lambda login: _hinted(login, title, stem)
+
+
+def _hinted(login, title: str, stem: str) -> bool:
     name = login.name.strip().lower()
     if len(name) >= 3 and (name == stem or _word_in(name, title)):
         return True
@@ -326,12 +355,13 @@ def find(window, logins, links: dict[str, str], page: str = '', just: str = '') 
             strength[login.id] = PAGE
     # Other accounts on the websites of the logins tied to this program.
     sites = set().union(*(_sites(login) for login in logins if login.id in strength))
+    hints = _hints(window, page)
     found = []
     for login in logins:
         if login.id not in strength:
             if sites and _sites(login) & sites:
                 strength[login.id] = SITE
-            elif hints_at(login, window, page):
+            elif hints(login):
                 strength[login.id] = HINT
         if login.id in strength:
             found.append(Match(login, strength[login.id]))

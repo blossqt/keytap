@@ -23,10 +23,12 @@ from __future__ import annotations
 import math
 from types import SimpleNamespace
 
-from PySide6.QtCore import QByteArray, QEvent, QMimeData, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (QAbstractListModel, QByteArray, QEvent, QMimeData, QModelIndex, QRect, QRectF, QSize, Qt,
+                            QTimer, QUrl, Signal)
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPixmap,
                            QShortcut, QTextDocument, QTextOption)
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton,
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget,
+                               QListWidgetItem, QPushButton,
                                QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
 
@@ -184,6 +186,81 @@ def spaced(code: str) -> str:
 
 
 # --------------------------------------------------------------------------- the list
+
+class _Logins(QAbstractListModel):
+    """The logins listed: a list of Python's own, the view asking only for the rows in sight. A
+    QListWidget's items each held a login, and as it was filled or cleared each took Python's lock
+    back: with another thread busy then (as after an unlock or a sync), 3,000 logins froze Keytap
+    for seconds (until 2026-10-26)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.logins: list = []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self.logins)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid() or not 0 <= index.row() < len(self.logins):
+            return None
+        login = self.logins[index.row()]
+        if role == Qt.UserRole:
+            return login
+        if role == Qt.AccessibleTextRole:
+            return f'{login.name} {login.username}'.strip()
+        return None
+
+    def show(self, logins: list) -> None:
+        self.beginResetModel()
+        self.logins = list(logins)
+        self.endResetModel()
+
+
+class _Row:
+    """A row of the list, as a QListWidgetItem would give it."""
+
+    def __init__(self, login):
+        self.login = login
+
+    def data(self, role):
+        return self.login if role == Qt.UserRole else None
+
+
+class _LoginList(QListView):
+    """The list of logins (_Logins), answering as a QListWidget would: count, item, the current row."""
+    currentItemChanged = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.logins = _Logins(self)
+        self.setModel(self.logins)
+        self.selectionModel().currentChanged.connect(lambda *_: self.currentItemChanged.emit())
+
+    def show_logins(self, logins: list, current_id: str = '') -> None:
+        """These logins, the one with current_id (else the first) chosen."""
+        self.logins.show(logins)
+        row = next((i for i, login in enumerate(logins) if login.id == current_id), 0 if logins else -1)
+        self.setCurrentRow(row)
+
+    def clear(self) -> None:
+        self.logins.show([])
+
+    def count(self) -> int:
+        return len(self.logins.logins)
+
+    def item(self, row: int) -> _Row | None:
+        return _Row(self.logins.logins[row]) if 0 <= row < self.count() else None
+
+    def currentRow(self) -> int:
+        index = self.currentIndex()
+        return index.row() if index.isValid() else -1
+
+    def currentItem(self) -> _Row | None:
+        return self.item(self.currentRow())
+
+    def setCurrentRow(self, row: int) -> None:
+        self.setCurrentIndex(self.logins.index(row, 0) if 0 <= row < self.count() else QModelIndex())
+
 
 class _LoginDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
@@ -678,7 +755,7 @@ class VaultWindow(QWidget):
             QListWidget#filters::item {{ color: {c.text.name()}; padding: 7px 8px; border-radius: {pill}px; }}
             QListWidget#filters::item:selected {{ background: {c.selected.name()}; color: {c.selected_text.name()}; }}
             QListWidget#filters::item:hover:!selected {{ background: {theme.css(c.hover)}; }}
-            QListWidget#logins {{ background: transparent; border: none; outline: none; }}
+            QListView#logins {{ background: transparent; border: none; outline: none; }}
             QTextEdit#text {{ color: {c.text.name()}; background: transparent; border: none;
                               selection-background-color: {theme.ACCENT}; selection-color: {theme.ON_ACCENT}; }}
         """
@@ -750,12 +827,12 @@ class VaultWindow(QWidget):
         self.search.textChanged.connect(lambda _: self._fill_list())
         self.search.installEventFilter(self)
         column.addWidget(self.search)
-        self.list = QListWidget()
+        self.list = _LoginList()
         self.list.setObjectName('logins')
         self.list.setItemDelegate(_LoginDelegate(self.list))
         self.list.setMouseTracking(True)
         self.list.setUniformItemSizes(True)
-        self.list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.list.currentItemChanged.connect(lambda *_: self._show_current())
         column.addWidget(self.list, 1)
         self.count = _label('', 8, role='dim')
@@ -867,17 +944,7 @@ class VaultWindow(QWidget):
                        key=lambda login: (login.name.lower(), login.username.lower()))
         current = self.details.login.id if self.details.login is not None else ''
         self.list.blockSignals(True)
-        self.list.clear()
-        chosen = None
-        for login in shown:
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, login)
-            self.list.addItem(item)
-            if login.id == current:
-                chosen = item
-        if chosen is None and self.list.count():
-            chosen = self.list.item(0)
-        self.list.setCurrentItem(chosen)
+        self.list.show_logins(shown, current)
         self.list.blockSignals(False)
         total = len(logins)
         self.count.setText(f'{len(shown)} of {total} logins' if len(shown) != total else f'{total} logins')

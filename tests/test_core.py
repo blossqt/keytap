@@ -113,6 +113,24 @@ class SequenceTests(unittest.TestCase):
 
 
 class MatchingTests(unittest.TestCase):
+    def test_a_big_vault_is_matched_quickly(self):
+        # 3,000 logins took 210 ms on Keytap's window thread each time a login box got the
+        # keyboard, or the hotkey opened the picker: a regular expression compiled per login.
+        import time
+        logins = [Login(str(n), f'Steam {n}', f'user{n}', 'pw', uris=(f'https://site{n % 40}.example.com/login',))
+                  for n in range(3000)]
+        started = time.perf_counter()
+        found = matching.find(window('steam.exe', 'Steam'), logins, {})
+        self.assertLess(time.perf_counter() - started, 0.1)
+        self.assertEqual(len(found), 3000, 'each named for the program')
+
+    def test_whole_words_as_before(self):
+        for word, text, whole in (('steam', 'steam (alt)', True), ('steam', 'steamy', False), ('team', 'steam', False),
+                                  ('bank', 'my bank', True), ('', 'anything', False), ('a_b', 'x a_b y', True),
+                                  ('a', 'é a', True), ('a', 'éa', False), ('a', 'a_', False), ('git', 'git-hub', True),
+                                  ('hub', 'github hub', True)):
+            self.assertEqual(matching._word_in(word, text), whole, (word, text))
+
     def test_uris(self):
         w = window('steam.exe', 'Sign in to Steam', 'C:\\Games\\Steam\\steam.exe')
         self.assertTrue(matching.uri_matches('app://steam.exe', w))

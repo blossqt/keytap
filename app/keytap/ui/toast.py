@@ -132,7 +132,9 @@ class ToastStack:
         toast.closed.connect(self._closed)
         self._toasts.append(toast)
         while len(self._toasts) > 4:
-            self._toasts[0].close_toast()
+            # Out of the stack at once: it only starts fading here, and while it was still counted
+            # this went round for ever - Keytap hung at a fifth toast (until 2026-10-26).
+            self._toasts.pop(0).close_toast()
         self._reflow()
         toast.show()
         return toast
