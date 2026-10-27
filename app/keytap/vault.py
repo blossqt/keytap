@@ -1,7 +1,8 @@
 """Bitwarden, through its own command-line tool (bw.exe).
 
 Keytap never talks to Bitwarden's servers itself and never stores a password.
-bw keeps the encrypted vault on this PC (in Keytap's own data folder, so it
+What it makes or changes in the vault - items, folders, Sends - goes through bw
+too, on bw's standard input. bw keeps the encrypted vault on this PC (in Keytap's own data folder, so it
 does not disturb a bw you use yourself); unlocking it gives a session key,
 which Keytap holds in memory only and hands to bw through its environment -
 never on a command line, where other programs could read it.
@@ -16,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
@@ -108,9 +110,10 @@ class Login:
         return None
 
     @classmethod
-    def from_item(cls, item: dict) -> Login | None:
-        """A login from one item of `bw list items`; None for cards, notes and the like."""
-        if item.get('type') != 1 or item.get('deletedDate') or item.get('archivedDate'):
+    def from_item(cls, item: dict, live_only: bool = True) -> Login | None:
+        """A login from one item of `bw list items`; None for cards, notes and the like - and,
+        live_only, for one in the trash or the archive, which nothing types."""
+        if item.get('type') != 1 or (live_only and (item.get('deletedDate') or item.get('archivedDate'))):
             return None
         login = item.get('login') or {}
         entries = [u for u in (login.get('uris') or []) if u and u.get('uri')]
@@ -178,11 +181,25 @@ def _json_from(text: str, opener: str):
         raise VaultError('Bitwarden gave an answer Keytap could not read') from error
 
 
+def logins_of(items: list[dict]) -> list[Login]:
+    """The logins among items from `bw list items`."""
+    logins = [Login.from_item(item) for item in items if isinstance(item, dict)]
+    return [login for login in logins if login is not None]
+
+
+def _encoded(value) -> str:
+    """JSON as bw takes it: base64, handed over on its standard input."""
+    return base64.b64encode(json.dumps(value).encode('utf-8')).decode('ascii')
+
+
 class Bitwarden:
     def __init__(self, command: list[str] | None = None, data: Path | None = None):
         self.command = command if command is not None else find_cli()
         self.data = data or data_dir()
         self._session = ''
+        # One bw at a time: each writes its data file as it goes, and two at once could leave it
+        # half one's and half the other's.
+        self._one_at_a_time = threading.Lock()
 
     @property
     def available(self) -> bool:
@@ -214,10 +231,11 @@ class Bitwarden:
         if password is not None:
             env[_PASSWORD_ENV] = password
         try:
-            result = win32.run_hidden([*self.command, *args, '--nointeraction'], env=env,
-                                      capture_output=True, text=True, encoding='utf-8', errors='replace',
-                                      timeout=timeout, **({'input': given} if given is not None
-                                                          else {'stdin': subprocess.DEVNULL}))
+            with self._one_at_a_time:
+                result = win32.run_hidden([*self.command, *args, '--nointeraction'], env=env,
+                                          capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                          timeout=timeout, **({'input': given} if given is not None
+                                                              else {'stdin': subprocess.DEVNULL}))
         except subprocess.TimeoutExpired as error:
             raise VaultError('Bitwarden took too long to answer') from error
         except OSError as error:
@@ -303,37 +321,157 @@ class Bitwarden:
             except VaultError:
                 pass
 
-    def logins(self, session: str = '') -> list[Login]:
-        """The vault's logins - with the session key held, or one of its own."""
+    def _unlocked(self, session: str = '') -> None:
         if not (session or self._session):
             raise VaultError('The vault is locked')
-        items = _json_from(self._run('list', 'items', session=session or True), '[')
-        logins = [Login.from_item(item) for item in items if isinstance(item, dict)]
-        return [login for login in logins if login is not None]
+
+    def _list(self, *args: str, session: str = '') -> list[dict]:
+        self._unlocked(session)
+        found = _json_from(self._run('list', *args, session=session or True), '[')
+        return [entry for entry in found if isinstance(entry, dict)]
+
+    def items(self, session: str = '', trash: bool = False, archived: bool = False) -> list[dict]:
+        """Everything in the vault - logins, cards, identities, notes, SSH keys - as bw gives it:
+        what is in use, or else what is in the trash or the archive."""
+        return self._list('items', *(['--trash'] if trash else []), *(['--archived'] if archived else []),
+                          session=session)
+
+    def logins(self, session: str = '') -> list[Login]:
+        """The vault's logins - with the session key held, or one of its own."""
+        return logins_of(self.items(session))
 
     def folders(self) -> dict[str, str]:
         """Folder names by id. Logins outside any folder have none."""
-        if not self._session:
-            raise VaultError('The vault is locked')
-        found = _json_from(self._run('list', 'folders'), '[')
-        return {str(f['id']): str(f.get('name') or '') for f in found if isinstance(f, dict) and f.get('id')}
+        return {str(f['id']): str(f.get('name') or '') for f in self._list('folders') if f.get('id')}
+
+    def organizations(self) -> list[dict]:
+        return self._list('organizations')
+
+    def collections(self) -> list[dict]:
+        """The organizations' collections this account can see."""
+        return self._list('collections')
 
     def sync(self) -> None:
         self._run('sync')
 
     def item(self, item_id: str) -> dict:
         """One item, as `bw get item` gives it."""
-        if not self._session:
-            raise VaultError('The vault is locked')
+        self._unlocked()
         return _json_from(self._run('get', 'item', item_id), '{')
 
     def _save(self, item: dict, item_id: str = '') -> dict:
         """Make an item - or, with item_id, change that one - giving bw the item on its standard
         input, encoded as it takes it: never on its command line, where other programs could read
         what is in it."""
-        encoded = base64.b64encode(json.dumps(item).encode('utf-8')).decode('ascii')
         args = ('edit', 'item', item_id) if item_id else ('create', 'item')
-        return _json_from(self._run(*args, given=encoded), '{')
+        return _json_from(self._run(*args, given=_encoded(item)), '{')
+
+    def save_item(self, item: dict, item_id: str = '') -> dict:
+        """A new item, or (with item_id) that one changed: the item as bw saved it."""
+        self._unlocked()
+        return self._save(item, item_id)
+
+    def delete_item(self, item_id: str, forever: bool = False) -> None:
+        """Into the trash - or, forever, gone (from the trash too)."""
+        self._unlocked()
+        self._run('delete', 'item', item_id, *(['--permanent'] if forever else []))
+
+    def restore_item(self, item_id: str) -> None:
+        """Back out of the trash, or out of the archive."""
+        self._unlocked()
+        self._run('restore', 'item', item_id)
+
+    def archive_item(self, item_id: str) -> None:
+        self._unlocked()
+        self._run('archive', 'item', item_id)
+
+    def save_folder(self, name: str, folder_id: str = '') -> dict:
+        """A new folder, or that one renamed."""
+        self._unlocked()
+        args = ('edit', 'folder', folder_id) if folder_id else ('create', 'folder')
+        return _json_from(self._run(*args, given=_encoded({'name': name})), '{')
+
+    def delete_folder(self, folder_id: str) -> None:
+        """The folder goes; what was in it stays, in no folder."""
+        self._unlocked()
+        self._run('delete', 'folder', folder_id)
+
+    def move_item(self, item_id: str, organization_id: str, collection_ids: list[str]) -> None:
+        """Into an organization, in those of its collections: it is the organization's from then on."""
+        self._unlocked()
+        self._run('move', item_id, organization_id, given=_encoded(list(collection_ids)))
+
+    def set_collections(self, item_id: str, collection_ids: list[str]) -> None:
+        """Which of its organization's collections an item is in."""
+        self._unlocked()
+        self._run('edit', 'item-collections', item_id, given=_encoded(list(collection_ids)))
+
+    # ------------------------------------------------------------------ attachments
+
+    def add_attachment(self, item_id: str, path: str) -> dict:
+        """A file attached to an item (Bitwarden asks for Premium): the item as it is now."""
+        self._unlocked()
+        return _json_from(self._run('create', 'attachment', '--file', path, '--itemid', item_id, timeout=600), '{')
+
+    def save_attachment(self, item_id: str, attachment_id: str, path: str) -> None:
+        """An attachment, decrypted, written to path."""
+        self._unlocked()
+        self._run('get', 'attachment', attachment_id, '--itemid', item_id, '--output', path, timeout=600)
+
+    def delete_attachment(self, item_id: str, attachment_id: str) -> None:
+        self._unlocked()
+        self._run('delete', 'attachment', attachment_id, '--itemid', item_id)
+
+    # ------------------------------------------------------------------ Send
+
+    def sends(self) -> list[dict]:
+        self._unlocked()
+        found = _json_from(self._run('send', 'list'), '[')
+        return [send for send in found if isinstance(send, dict)]
+
+    def save_send(self, send: dict, send_id: str = '') -> dict:
+        """A new Send, or (with send_id) that one changed. A file Send's file is send['file']['fileName'],
+        a path; a password is in send['password'] - on bw's standard input, as an item is."""
+        self._unlocked()
+        args = ('send', 'edit', '--itemid', send_id) if send_id else ('send', 'create')
+        return _json_from(self._run(*args, given=_encoded(send), timeout=600), '{')
+
+    def delete_send(self, send_id: str) -> None:
+        self._unlocked()
+        self._run('send', 'delete', send_id)
+
+    def remove_send_password(self, send_id: str) -> dict:
+        self._unlocked()
+        return _json_from(self._run('send', 'remove-password', send_id), '{')
+
+    # ------------------------------------------------------------------ reports, export and import
+
+    def health(self, check_exposed: bool = True) -> list[dict]:
+        """Each login with a password: how strong it is (0-4), how many logins share it, and - asking
+        Have I Been Pwned, which learns only the start of its hash - whether it has leaked."""
+        self._unlocked()
+        args = ('report', 'password-health', *([] if check_exposed else ['--no-check-exposed']))
+        found = _json_from(self._run(*args, timeout=900), '[')
+        return [entry for entry in found if isinstance(entry, dict)]
+
+    def export(self, path: str, form: str) -> None:
+        """The whole vault to a file: form is 'json', 'csv' (neither encrypted), 'encrypted_json' (with
+        this account's key, so only it can import it) or 'zip' (with attachments)."""
+        self._unlocked()
+        self._run('export', '--format', form, '--output', path, timeout=900)
+
+    def import_formats(self) -> list[str]:
+        """The formats `bw import` reads, by name ('bitwardenjson', 'chromecsv', ...)."""
+        self._unlocked()
+        out = self._run('import', '--formats', '--raw')
+        return [line.strip() for line in out.splitlines() if re.fullmatch(r'[a-z0-9]+', line.strip())]
+
+    def import_file(self, form: str, path: str, password: str = '') -> str:
+        """Another password manager's export (or Bitwarden's) into the vault: bw's own words on it.
+        A protected file's password goes to bw through its environment."""
+        self._unlocked()
+        extra = ('--passwordenv', _PASSWORD_ENV) if password else ()
+        return _last_line(self._run('import', form, path, *extra, password=password or None, timeout=900))
 
     def add_passkey(self, record: dict, login_id: str = '', name: str = '', site: str = '') -> str:
         """Save a new passkey (passkeys.record) to the login with login_id - which then has it in

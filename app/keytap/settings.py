@@ -143,5 +143,18 @@ class Settings:
     def passkeys_told(self, value: bool) -> None:
         self._store.setValue('passkeys/told', bool(value))
 
+    @property
+    def generator(self) -> dict:
+        """The generator's choices: what it makes, how long, which characters (never what it made)."""
+        try:
+            options = json.loads(self._get('generator/json', '{}') or '{}')
+        except json.JSONDecodeError:
+            return {}
+        return options if isinstance(options, dict) else {}
+
+    @generator.setter
+    def generator(self, options: dict) -> None:
+        self._store.setValue('generator/json', json.dumps(options))
+
     def sync(self) -> None:
         self._store.sync()

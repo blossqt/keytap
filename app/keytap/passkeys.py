@@ -8,8 +8,8 @@ with requests and answers in CTAP2's CBOR.
 
 The answer is built exactly as Bitwarden builds it - the same flags (backed
 up and eligible for it, as synced passkeys are), the same counter, the same
-key - so a website cannot tell which Bitwarden app signed. Keytap only reads
-the vault, so a passkey that counts its uses (a counter above 0, from an
+key - so a website cannot tell which Bitwarden app signed. Signing writes
+nothing to the vault, so a passkey that counts its uses (a counter above 0, from an
 import; Bitwarden's own stay at 0) is left to Bitwarden, which saves the
 count: an unsaved count would look to the website like a copied key.
 

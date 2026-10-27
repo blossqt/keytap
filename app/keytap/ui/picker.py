@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QCheckBox, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QShortcut
+from PySide6.QtWidgets import (QCheckBox, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
                                QStyle, QStyledItemDelegate)
 
 from ..matching import HINT, JUST, LINKED, PAGE, SITE, URI, main_site
@@ -82,6 +82,7 @@ class Picker(Card):
     """chosen(login, action, remember) - action is one of ACTIONS' names; remember is '' (no),
     'login' (always this login) or 'site' (any login for its website)."""
     chosen = Signal(object, str, str)
+    new_login = Signal()          # a login for this program or page is to be made instead
 
     def __init__(self, logins, matches, target_label: str, remember_label: str = '', site_choice: bool = False):
         super().__init__(460)
@@ -141,6 +142,13 @@ class Picker(Card):
         hint.setFont(theme.font(8))
         hint.setWordWrap(True)
         self.body.addWidget(hint)
+        self.new_button = QPushButton(f'New login for {target_label}  (Ctrl+N)' if target_label else 'New login  (Ctrl+N)')
+        self.new_button.setIcon(QIcon(icons.glyph('plus', theme.colors().text, 16, 1.8)))
+        self.new_button.setFocusPolicy(Qt.NoFocus)
+        self.new_button.setCursor(Qt.PointingHandCursor)
+        self.new_button.clicked.connect(self._new)
+        self.body.addWidget(self.new_button)
+        QShortcut(QKeySequence('Ctrl+N'), self, activated=self._new)
 
         for action, _, keys in ACTIONS:
             if action and keys != 'Return':
@@ -204,6 +212,14 @@ class Picker(Card):
             'site' if not self.whole_site.isHidden() and self.whole_site.isChecked() else 'login'
         self.hide()
         self.chosen.emit(login, action, remember)
+        self.close()
+
+    def _new(self) -> None:
+        if self._done:
+            return
+        self._done = True
+        self.hide()
+        self.new_login.emit()
         self.close()
 
     def _menu(self, pos) -> None:

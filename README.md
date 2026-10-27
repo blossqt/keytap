@@ -4,10 +4,12 @@ Press a key in any Windows program and Keytap types your Bitwarden login
 there: game launchers, desktop apps, remote desktops, anything with a
 username box. Part of the same suite as Homework Hub, Grabbit and Dropshift.
 
-Keytap reads your vault through Bitwarden's own command-line tool, which
-comes with it. It never talks to Bitwarden's servers itself and never writes
-to your vault. It saves no passwords, except your master password sealed for
-Windows Hello if you turn that on.
+Keytap reaches your vault through Bitwarden's own command-line tool, which
+comes with it, and does what Bitwarden's apps do: it makes and changes logins,
+cards, identities, notes and SSH keys, and has the generator, Send, the vault
+health report, and export and import. It never talks to Bitwarden's servers
+itself. It saves no passwords, except your master password sealed for Windows
+Hello if you turn that on.
 
 ## Installing
 
@@ -43,26 +45,58 @@ verification code, ready to paste on the next screen, as Bitwarden does.
 Open Keytap from Start, from Hanami, or from the tray's **Open Keytap**, and it
 shows your vault the way Bitwarden's apps do:
 
-- **Filters** on the left: all logins, favourites, those with a verification
-  code, and your folders.
-- **Logins** in the middle, with a search box (Ctrl+F). It searches names,
+- **Filters** on the left: everything, favourites, those with a verification
+  code, each kind of item, your folders and collections, the archive and the
+  trash.
+- **Items** in the middle, with a search box (Ctrl+F). It searches names,
   usernames and websites.
-- **The chosen login** on the right:
-  - its username, its password (hidden until you click the eye) and its
-    verification code, counting down;
-  - its websites and programs, custom fields and notes;
+- **The chosen item** on the right:
+  - a login's username, password (hidden until you click the eye) and
+    verification code, counting down; a card's number, expiry and security
+    code; an identity's details; an SSH key;
+  - websites and programs, custom fields, notes, attachments, and a login's
+    earlier passwords;
   - a button to copy each part. **Ctrl+U**, **Ctrl+P** and **Ctrl+T** copy the
     username, password and code.
 
 Copies are kept out of Windows' clipboard history and cleared after 30 seconds.
-A login set to ask for your master password again shows nothing until you
+An item set to ask for your master password again shows nothing until you
 give it. **Ctrl+L** locks and **Ctrl+R** syncs.
 
-Keytap only reads your vault. **Edit in Bitwarden** opens the login in
-Bitwarden's web vault, where changes are made.
+### Changing the vault
+
+- **New** (Ctrl+N for a login) makes a login, card, identity, note, SSH key
+  (a new Ed25519 key comes with it) or folder.
+- **Edit** (Ctrl+E, or double-click) changes any part of an item: websites
+  and their match detection, custom fields of every kind, its folder, whether
+  it asks for your master password. The dice beside a password or username
+  makes one up.
+- **Favourite**, and under **⋯**: clone, archive, attach a file, move to an
+  organization or change its collections, open it in Bitwarden's web vault,
+  and delete. Deleted items go to the trash, where they can be restored or
+  deleted for good. Right-click a folder to rename or delete it.
+- In the picker, **New login** (Ctrl+N) makes a login for the program or page
+  you were in.
+
+**⋯** at the top holds the tools:
+
+- **Generator**: passwords, passphrases (from EFF's word list, as Bitwarden's)
+  and usernames. What it makes is listed until Keytap locks.
+- **Send**: share a text or a file through a link that is deleted after a
+  while, with a password or a limit on views if you like.
+- **Vault health**: passwords that leaked in a data breach (checked with Have I
+  Been Pwned, which is sent only the start of each password's hash), are used
+  by more than one login, or are weak, and websites that aren't https.
+- **Export vault** and **Import data** (from Bitwarden or another password
+  manager).
+
+Everything goes through Bitwarden's command-line tool, which encrypts it
+before it leaves this PC. What is saved is handed to it on its standard input,
+never on a command line where other programs could read it.
 
 While the vault is locked, the window shows the lock screen. Locking, whether
-by hand, when idle or with Windows, clears every login off it.
+by hand, when idle or with Windows, clears every item off it and closes the
+editor and the tools.
 
 Started with Windows, Keytap stays in the background until you open it.
 
@@ -295,3 +329,8 @@ top of `build\release.py`. The script is Hanami's, copied here.
 
 The cherry blossom faintly behind Keytap's vault and settings windows is a photo by AJ on Unsplash
 (https://unsplash.com/photos/McsNra2VRQQ), used under the Unsplash License.
+
+## Word list
+
+The generator's passphrases use EFF's long word list (https://www.eff.org/dice), under CC BY 3.0
+US - the list Bitwarden uses, in `app\keytap\words.txt`.

@@ -25,10 +25,11 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
-from . import (APP_NAME, __version__, background, focus, hello, matching, package, passkeys, provider, sequence,
-               suitelog, totp, typer, win32)
+from . import (APP_NAME, __version__, background, focus, hello, items, matching, package, passkeys, provider,
+               sequence, suitelog, totp, typer, win32)
 from .focus import FieldWatcher
 from .hotkeys import Hotkeys, SessionWatcher
+from .items import Item
 from .settings import Settings
 from .signins import PasskeySignIns, Relay
 from .suitetray import SuiteTray
@@ -46,6 +47,7 @@ SERVER_NAME = os.environ.get('KEYTAP_INSTANCE') or f'keytap-{os.environ.get("USE
 APP_ID = 'Suite.Keytap'
 DEV = os.environ.get('KEYTAP_DEV') == '1'
 ASKED_TOO_LONG = 2000           # ms a connection to Keytap's socket gets to say what it wants
+TOOL_WINDOWS = ('generator', 'sends', 'health', 'export', 'import')     # closed on locking
 WARM_AFTER = 3000               # ms after Keytap starts: a card made unseen (_warm_up)
 CLIPBOARD_SECONDS = 30
 JUST_TYPED_SECONDS = 300           # a username-first sign-in's password page offers that login first
@@ -56,6 +58,11 @@ SYNC_MINUTES = 30
 # Typed for each picker action ('all' uses the login's own sequence).
 _ACTION_SEQUENCES = {'username': '{USERNAME}', 'password': '{PASSWORD}', 'totp': '{TOTP}'}
 _COPY_LABELS = {'copy_username': 'username', 'copy_password': 'password', 'copy_totp': 'verification code'}
+
+
+def _now() -> str:
+    """This moment as bw writes one: '2026-10-27T12:00:00.000Z'."""
+    return time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
 
 
 def _verifier(password: str, salt: bytes | None = None) -> tuple[bytes, bytes]:
@@ -73,7 +80,16 @@ class Controller(QObject):
         self.status = Status('missing' if not self.vault.available else 'checking')
         self.cli_version = ''
         self.logins: list[Login] | None = None
+        # The whole vault, for its window: every kind of item, the trash and the archive, folders,
+        # and the organizations' collections. Cleared with the logins on locking.
+        self.items: list[Item] | None = None
+        self.trash: list[Item] = []
+        self.archive: list[Item] = []
+        self.can_archive = True
         self.folders: dict[str, str] = {}
+        self.organizations: dict[str, str] = {}
+        self.collections: list[dict] = []
+        self.generated: list[tuple[str, float]] = []      # what the generator made since unlocking
         self.hotkey_problems: dict[str, str] = {}
         self.card = None               # the picker or unlock card on screen, if any
         self.typing = False
@@ -258,6 +274,7 @@ class Controller(QObject):
         # In a program (not on a web page, which is a website already): its website's logins, all of them.
         picker = Picker(self.logins, matches, where, remember, site_choice=not page)
         picker.chosen.connect(lambda login, what, keep: self._picked(window, login, what, keep, page))
+        picker.new_login.connect(lambda: self.new_login_for(window, page))
         self._show_card(picker, window.hwnd)
 
     def _picked(self, window, login: Login, what: str, remember: str, page: str = '') -> None:
@@ -389,14 +406,14 @@ class Controller(QObject):
         def work():
             if password is not None:
                 self.vault.unlock(password)
-                return self.vault.logins(), _verifier(password), None, True
+                return items.of(self.vault.items()), _verifier(password), None, True
             opened = hello.open_seal()
             kept = hello.kept_logins(self.status.email, opened.logins_key)
             if kept is not None:
                 # At once, from the copy Windows Hello keeps; bw unlocks meanwhile (_finish_unlock).
                 return kept, _verifier(opened.password), opened, False
             self.vault.unlock(opened.password)
-            return self.vault.logins(), _verifier(opened.password), opened, True
+            return items.of(self.vault.items()), _verifier(opened.password), opened, True
 
         def done(result, error):
             if error is not None:
@@ -412,8 +429,8 @@ class Controller(QObject):
                 else:
                     card.fail('' if isinstance(error, hello.HelloCancelled) else str(error))
                 return
-            logins, check, opened, ready = result
-            self._unlocked(logins, check, opened.logins_key if opened else None, ready)
+            found, check, opened, ready = result
+            self._unlocked(found, check, opened.logins_key if opened else None, ready)
             if not ready:
                 self._finish_unlock(opened.password)
             card.finish()
@@ -483,10 +500,14 @@ class Controller(QObject):
         background.run(hello.turn_off, lambda _, error: self.toasts.show(
             'Windows Hello is off', 'Keytap asks for your master password again.'))
 
-    def _unlocked(self, logins: list[Login], check, logins_key: bytes | None = None, ready: bool = True) -> None:
-        """Unlocked, with logins from bw - or, not ready, from the copy Windows Hello keeps, while
-        bw unlocks (_finish_unlock)."""
-        self.logins = logins
+    def _unlocked(self, found: list, check, logins_key: bytes | None = None, ready: bool = True) -> None:
+        """Unlocked, with the vault's items from bw - or, not ready, with the logins Windows Hello keeps
+        a copy of, while bw unlocks (_finish_unlock)."""
+        if ready:
+            self._take_items(found)
+        else:
+            self.logins = found
+            self.items = [Item.from_login(login) for login in found]
         self._check = check
         self._logins_key = logins_key
         self._set_state('unlocked')
@@ -507,7 +528,7 @@ class Controller(QObject):
         def work():
             key = self.vault.unlock(password, keep=False)
             try:
-                return key, self.vault.logins(session=key)
+                return key, items.of(self.vault.items(session=key))
             except VaultError:
                 self.vault.lock(key)
                 raise
@@ -530,9 +551,9 @@ class Controller(QObject):
                 else:
                     self.toasts.show('Keytap is locked', f'Bitwarden did not unlock: {error}', error=True)
                 return
-            key, logins = result
+            key, found = result
             self.vault.use_session(key)
-            self.logins = logins
+            self._take_items(found)
             self._refresh_vault()
             self._sync_passkeys()
             self._vault_ready()
@@ -636,12 +657,211 @@ class Controller(QObject):
                   f'passkeys: Windows did not take the list: {error}', flush=True)
         background.run(lambda: provider.sync_credentials(keys), done)
 
-    def _load_folders(self) -> None:
-        def done(folders, error):
-            if error is None and self.unlocked:
-                self.folders = folders
+    def _load_extras(self) -> None:
+        """What the vault window shows besides the items in use: folders, the trash, the archive, the
+        organizations and their collections - after the items, as each is a bw call of its own."""
+        generation = self._generation
+
+        def folders(found, error):           # first, as the window lists them
+            if error is None and generation == self._generation and self.unlocked:
+                self.folders = found
                 self._refresh_vault()
-        background.run(self.vault.folders, done)
+                background.run(work, done)
+
+        def work():
+            found = {}
+            for name, call in (('trash', lambda: items.of(self.vault.items(trash=True))),
+                               ('archive', lambda: items.of(self.vault.items(archived=True))),
+                               ('organizations', self.vault.organizations), ('collections', self.vault.collections)):
+                try:
+                    found[name] = call()
+                except VaultError as error:          # an older server, say: the rest still comes
+                    print(f'vault: no {name}: {error}', flush=True)
+            return found
+
+        def done(found, error):
+            if error is not None or generation != self._generation or not self.unlocked:
+                return
+            self.trash = found.get('trash', [])
+            archived = found.get('archive')
+            if archived is not None:
+                # Without Premium, bw ignores --archived and lists what is in use instead.
+                self.can_archive = all(item.archived for item in archived)
+                self.archive = archived if self.can_archive else []
+            self.organizations = {str(o['id']): str(o.get('name') or '') for o in found.get('organizations', [])
+                                  if o.get('id')}
+            self.collections = found.get('collections', [])
+            self._refresh_vault()
+        background.run(self.vault.folders, folders)
+
+    def _take_items(self, found: list[Item]) -> None:
+        """The vault's items as bw listed them (made into Items off the UI thread: 3,000 took 20 ms):
+        the window's, and the logins auto-type uses."""
+        self.items = found
+        self.logins = [item.login for item in found if item.login is not None and not item.deleted
+                       and not item.archived]
+
+    def _changed(self) -> None:
+        """Something in the vault was made or changed here: everything that follows the vault, now."""
+        self._take_items(self.items or [])
+        self._refresh_vault()
+        self._sync_passkeys()
+        self._keep_logins()
+
+    def _replace(self, saved: dict) -> Item:
+        """An item bw has just saved, in place of what was there."""
+        made = Item(saved)
+        self.items = [item for item in self.items or [] if item.id != made.id]
+        self.archive = [item for item in self.archive if item.id != made.id]
+        (self.archive if made.archived else self.items).append(made)
+        self._changed()
+        return made
+
+    def _vault_job(self, work, then, done) -> None:
+        """work() off the UI thread; then(result) here, if Keytap is still unlocked; done(result,
+        error) either way - error only for what failed."""
+        generation = self._generation
+
+        def finished(result, error):
+            if error is None and generation == self._generation and self.unlocked:
+                result = then(result) if then is not None else result
+            elif error is None:
+                error = VaultError('Keytap locked before Bitwarden finished')
+            if done is not None:
+                done(result, error)
+        background.run(work, finished)
+
+    def save_item(self, raw: dict, item_id: str, done=None) -> None:
+        """A new item or a changed one, to bw; done(Item, error)."""
+        self._vault_job(lambda: self.vault.save_item(raw, item_id), self._replace, done)
+
+    def delete_item(self, item: Item, forever: bool, done=None) -> None:
+        def gone(_):
+            self.items = [i for i in self.items or [] if i.id != item.id]
+            self.archive = [i for i in self.archive if i.id != item.id]
+            self.trash = [i for i in self.trash if i.id != item.id]
+            if not forever:
+                self.trash.append(Item(dict(item.raw, deletedDate=_now())))
+            self._changed()
+        self._vault_job(lambda: self.vault.delete_item(item.id, forever), gone, done)
+
+    def restore_item(self, item: Item, done=None) -> None:
+        """Out of the trash or the archive."""
+        def back(_):
+            raw = dict(item.raw)
+            raw.pop('deletedDate' if item.deleted else 'archivedDate', None)
+            self.trash = [i for i in self.trash if i.id != item.id]
+            self.archive = [i for i in self.archive if i.id != item.id]
+            restored = Item(raw)
+            (self.archive if restored.archived else self.items).append(restored)
+            self._changed()
+        self._vault_job(lambda: self.vault.restore_item(item.id), back, done)
+
+    def archive_item(self, item: Item, done=None) -> None:
+        def archived(_):
+            self.items = [i for i in self.items or [] if i.id != item.id]
+            self.archive.append(Item(dict(item.raw, archivedDate=_now())))
+            self._changed()
+        self._vault_job(lambda: self.vault.archive_item(item.id), archived, done)
+
+    def _then_reread(self, item: Item, work, done) -> None:
+        """work(), which bw answers without the item, then the item as it is now."""
+        def both():
+            work()
+            return self.vault.item(item.id)
+        self._vault_job(both, self._replace, done)
+
+    def move_item(self, item: Item, organization_id: str, collection_ids: list[str], done=None) -> None:
+        self._then_reread(item, lambda: self.vault.move_item(item.id, organization_id, collection_ids), done)
+
+    def set_collections(self, item: Item, collection_ids: list[str], done=None) -> None:
+        self._then_reread(item, lambda: self.vault.set_collections(item.id, collection_ids), done)
+
+    def add_attachment(self, item: Item, path: str, done=None) -> None:
+        self.toasts.show('Attaching…', Path(path).name)
+        self._vault_job(lambda: self.vault.add_attachment(item.id, path), self._replace, done)
+
+    def save_attachment(self, item: Item, attachment: dict, path: str, done=None) -> None:
+        def saved(_):
+            self.toasts.show('Saved', f'{attachment.get("fileName")} - decrypted, so anyone who opens it can read it.')
+        self._vault_job(lambda: self.vault.save_attachment(item.id, str(attachment['id']), path), saved, done)
+
+    def delete_attachment(self, item: Item, attachment: dict, done=None) -> None:
+        self._then_reread(item, lambda: self.vault.delete_attachment(item.id, str(attachment['id'])), done)
+
+    def save_folder(self, name: str, folder_id: str = '', done=None) -> None:
+        def saved(folder):
+            self.folders = dict(self.folders, **{str(folder.get('id') or folder_id): name})
+            self._refresh_vault()
+            return folder
+        self._vault_job(lambda: self.vault.save_folder(name, folder_id), saved, done)
+
+    def delete_folder(self, folder_id: str, done=None) -> None:
+        def gone(_):
+            self.folders = {key: value for key, value in self.folders.items() if key != folder_id}
+            self.items = [Item(dict(i.raw, folderId=None)) if i.folder_id == folder_id else i
+                          for i in self.items or []]
+            self._changed()
+        self._vault_job(lambda: self.vault.delete_folder(folder_id), gone, done)
+
+    def remember_generated(self, value: str) -> None:
+        """What the generator made, for its history - kept only until Keytap locks."""
+        self.generated = [(value, time.time())] + [entry for entry in self.generated if entry[0] != value][:49]
+
+    def new_login_for(self, window, page: str = '') -> None:
+        """The vault window's editor, for a new login for that window's program or web page."""
+        site = matching.page_site(page) if page else ''
+        if site:
+            name, uris = site, (f'https://{site}',)
+        elif window is not None and window.exe:
+            name = Path(window.exe).stem.replace('_', ' ').replace('-', ' ').strip().title() or window.exe
+            uris = (f'app://{window.exe}',)
+        else:
+            name, uris = '', ()
+        self.show_vault()
+        vault_window = self._windows.get('vault')
+        if vault_window is not None:
+            vault_window.new_item(items.LOGIN, name, uris)
+
+    def _tool_window(self, name: str, make) -> None:
+        """One of the vault window's tools (the generator, Send...), while unlocked."""
+        if not self.unlocked:
+            self.show_vault()
+            return
+        if not self._bring_back(name):
+            self._keep(name, make())
+
+    def show_generator(self) -> None:
+        from .ui.tools import GeneratorWindow
+        self._tool_window('generator', lambda: GeneratorWindow(self))
+
+    def show_sends(self) -> None:
+        from .ui.tools import SendsWindow
+        self._tool_window('sends', lambda: SendsWindow(self))
+
+    def show_health(self) -> None:
+        from .ui.tools import HealthWindow
+        self._tool_window('health', lambda: HealthWindow(self))
+
+    def show_export(self) -> None:
+        from .ui.tools import ExportDialog
+        self._tool_window('export', lambda: ExportDialog(self))
+
+    def show_import(self) -> None:
+        from .ui.tools import ImportDialog
+        self._tool_window('import', lambda: ImportDialog(self))
+
+    def run_vault(self, work, then=None, done=None) -> None:
+        """For the tools: bw work off the UI thread, as the items' own changes are."""
+        self._vault_job(work, then, done)
+
+    def reload(self) -> None:
+        """Everything read again from bw (after an import, say)."""
+        def found(read):
+            self.items = read
+            self._changed()
+            self._load_extras()
+        self._vault_job(lambda: items.of(self.vault.items()), found, None)
 
     def confirm(self, login: Login | None, then, near_hwnd: int | None = None, cancelled=None, detail: str = ''):
         """Ask for the master password again - for a login that wants it, say - then go on; or
@@ -680,7 +900,16 @@ class Controller(QObject):
             return
         session = self.vault.take_session()
         self.logins = None
-        self.folders = {}
+        self.items = None
+        self.trash, self.archive, self.collections, self.generated = [], [], [], []
+        self.folders, self.organizations = {}, {}
+        for name in TOOL_WINDOWS:          # the generator's history, Sends, the health report...
+            window = self._windows.pop(name, None)
+            if window is not None:
+                try:
+                    window.close()
+                except RuntimeError:
+                    pass
         self._check = None
         self._logins_key = None
         self._generation += 1           # an unlock still finishing in the background is dropped
@@ -698,25 +927,27 @@ class Controller(QObject):
         if not self.unlocked:
             return
 
+        generation = self._generation
+
         def work():
             self.vault.sync()
-            return self.vault.logins()
+            return items.of(self.vault.items())
 
-        def done(logins, error):
+        def done(found, error):
+            if generation != self._generation or not self.unlocked:
+                return
             if error is not None:
                 if not quiet:
                     self.toasts.show('Could not sync', f'{error} - using the copy on this PC.', error=True)
-                if self.unlocked and not self.folders:
-                    self._load_folders()       # from the copy on this PC, then
+                self._load_extras()            # from the copy on this PC, then
                 return
-            if self.unlocked:
-                self.logins = logins
-                self._refresh_vault()
-                self._load_folders()
-                self._sync_passkeys()
-                self._keep_logins()
-                if not quiet:
-                    self.toasts.show('Synced', f'{len(logins)} logins in your vault.')
+            self._take_items(found)
+            self._refresh_vault()
+            self._load_extras()
+            self._sync_passkeys()
+            self._keep_logins()
+            if not quiet:
+                self.toasts.show('Synced', f'{len(self.items)} items in your vault.')
         background.run(work, done)
 
     def link_target(self, value: str) -> str:
@@ -1115,8 +1346,8 @@ class Controller(QObject):
                 return {'visible': False}
             page = {window.vault_page: 'vault', window.lock_page: 'locked'}.get(window.pages.currentWidget(), 'notice')
             return {'visible': True, 'page': page, 'listed': window.list.count(),
-                    'filters': window.filters.count(), 'shown': window.details.login.name
-                    if window.details.login is not None else ''}
+                    'filters': window.filters.count(), 'shown': window.details.item.name
+                    if window.details.item is not None else ''}
         except RuntimeError:
             return {'visible': False}
 
@@ -1182,6 +1413,12 @@ def self_test(argv: list[str]) -> int:
         Hotkeys()
         InlineMenu().grab()            # painted, never shown
         VaultWindow(sample_controller(sample)).grab()
+        # The editor and the generator: its word list came along, and an SSH key can be made.
+        from . import generator, sshkey
+        from .ui.editor import ItemEditor
+        ItemEditor(sample_controller(sample), items.blank(items.LOGIN, 'Example')).grab()
+        if len(generator.passphrase().split('-')) != 6 or not sshkey.new_key()['keyFingerprint']:
+            raise RuntimeError('the generator is broken')
         problem = focus.probe()
         if problem:
             raise RuntimeError(f'UI Automation: {problem}')
