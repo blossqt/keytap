@@ -1,4 +1,4 @@
 """Keytap: press a key in any app and it types your Bitwarden login there."""
 
-__version__ = "0.2.19"
+__version__ = "0.2.20"
 APP_NAME = "Keytap"

@@ -9,6 +9,9 @@ Each window comes up without the keyboard, in the main screen's lower right, for
 pressing its Log in button through UI Automation may bring it to the front. Nothing is typed:
 every box here takes its value set. Edge runs with a profile of its own in %TEMP%. Check the
 window in front first: not over a game.
+
+typed-password (Ubisoft Connect's page: its password box empties itself unless typed into) is
+typed into, with real keys, so it runs only when named, while nobody is using the PC.
 """
 
 import ctypes
@@ -42,7 +45,9 @@ CASES = {
     'search-first': ('chromium', 'search-first', 'none', {'u': USER, 'p': PASSWORD, 'q': '', 's': 'submitted'}),
     'email-first': ('chromium', 'identifier', 'username', {'u': USER, 's': 'submitted'}),
     'password-page': ('chromium', 'password-step', 'password', {'u': USER, 'p': PASSWORD, 's': 'submitted'}),
+    'typed-password': ('chromium', 'typed-password', 'none', {'u': USER, 'p': PASSWORD, 's': 'submitted'}),
 }
+TYPED = {'typed-password'}      # typed into with real keys: run only when named
 
 
 def _title(hwnd) -> str:
@@ -107,7 +112,7 @@ def run(name: str, automation) -> bool:
         time.sleep(0.4)
         got = has(program, hwnd, report)
         got = {key: got.get(key) for key in expected}
-        ok = result.outcome == 'filled' and got == expected and not result.typed
+        ok = result.outcome == 'filled' and got == expected and result.typed == (name in TYPED)
         print(f'{"PASS" if ok else "FAIL"}  {name:20} {took:5.0f} ms  {result.submitted or "not sent"}'
               + ('' if ok else f'\n      {result}\n      has {got}\n      not {expected}'))
         return ok
@@ -147,7 +152,7 @@ def through_keytap() -> bool:
 
 def main() -> int:
     automation, _ = focus._automation()
-    names = sys.argv[1:] or [*CASES, 'through-keytap']
+    names = sys.argv[1:] or [*(name for name in CASES if name not in TYPED), 'through-keytap']
     passed = sum(through_keytap() if name == 'through-keytap' else run(name, automation) for name in names)
     print(f'{passed} of {len(names)} passed')
     return 0 if passed == len(names) else 1

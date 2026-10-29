@@ -16,7 +16,9 @@ gets the keystrokes it always got (fill() says 'nothing').
 
 Classic Windows boxes, WPF, Qt and Chromium pages (Electron, CEF, WebView2 apps) all take a set
 value: the program sees it as typed - a web page gets its input events, so React and the like
-notice it.
+notice it. A page may still drop it: Ubisoft Connect's empties its password box again at once
+(and says "Required" when sent). Chromium's and Qt's password boxes say a dot for each character
+they hold, so there a box still empty didn't take it, and gets typed into.
 
 Runs on FieldWatcher's UI Automation thread.
 """
@@ -37,6 +39,7 @@ UIA_BUTTON, UIA_EDIT = 50000, 50004
 TREE_SCOPE_DESCENDANTS = 4
 VK_CONTROL, VK_RETURN = 0x11, 0x0D
 
+DOTTED = ('Chrome', 'Qt')   # UI Automation frameworks whose password boxes say a dot a character
 ANCESTORS = 6       # how far up from the box with the keyboard to look for the rest of its form
 BUTTON_ANCESTORS = 3    # and further, for its sign-in button
 NEAR = 4            # a password box this many of its heights below the username box is its own
@@ -223,8 +226,7 @@ def read_only(element) -> bool:
 
 
 def put(element, value: str, password: bool) -> bool:
-    """Set a box's value, and see that it took. A password box may not say what it holds (WPF's
-    won't, Windows' own says nothing, Chromium's says as many bullets): taken at its word."""
+    """Set a box's value, and see that it took."""
     try:
         pattern = _value_pattern(element)
         if pattern is None:
@@ -232,15 +234,26 @@ def put(element, value: str, password: bool) -> bool:
         pattern.SetValue(value)
     except Exception:  # noqa: BLE001 - no value to set here: it gets typed
         return False
-    deadline = time.monotonic() + 0.6           # a web page's says so a moment later
+    return holds(element, pattern, value, password)
+
+
+def holds(element, pattern, value: str, password: bool, seconds: float = 0.6) -> bool:
+    """Whether a box holds value, as it says within seconds (a web page's says so a moment
+    later). A password box says a dot for each character it holds (Chromium's, Qt's), so an
+    empty one there holds nothing; others say nothing at all (Windows' own) or won't be read
+    (WPF's), and are taken at their word."""
+    try:
+        dotted = password and element.CurrentFrameworkId in DOTTED
+    except Exception:  # noqa: BLE001
+        dotted = False
+    deadline = time.monotonic() + seconds
     while True:
         try:
             now = pattern.CurrentValue or ''
         except Exception:  # noqa: BLE001
             return password
-        if now == value:
-            return True
-        if password and (not now or (len(now) == len(value) and len(set(now)) == 1 and not now[0].isalnum())):
+        if now == value or password and (
+                not now and not dotted or len(now) == len(value) and len(set(now)) == 1 and not now[0].isalnum()):
             return True
         if time.monotonic() > deadline:
             return False
@@ -265,12 +278,21 @@ def give_focus(automation, window, element, seconds: float = 0.8) -> bool:
     return False
 
 
-def key_in(automation, window, element, value: str, keys: tuple) -> bool:
-    """Type value into a box that wouldn't take it set, over whatever it held."""
+def key_in(automation, window, element, value: str, keys: tuple, password: bool) -> bool:
+    """Type value into a box that wouldn't take it set, over whatever it held, and see that it
+    holds it."""
     if not give_focus(automation, window, element):
         return False
     steps = [('chord', (VK_CONTROL, 0x41)), ('text', value)]       # Ctrl+A: over what is there
-    return typer.type_steps(steps, window.pid, compat=keys[0], key_delay_ms=keys[1], settle_ms=0) == typer.DONE
+    if typer.type_steps(steps, window.pid, compat=keys[0], key_delay_ms=keys[1], settle_ms=0) != typer.DONE:
+        return False
+    try:
+        pattern = _value_pattern(element)
+        if pattern is not None and not password:
+            return bool(pattern.CurrentValue)       # something landed: a box may shape it (a phone number's)
+    except Exception:  # noqa: BLE001
+        return True
+    return pattern is None or holds(element, pattern, value, password, seconds=1.5)
 
 
 def _invoke(element) -> bool:
@@ -365,7 +387,7 @@ def fill(automation, window, start, username: str | None, password: str | None, 
             continue
         if put(element, value, secret):
             pass
-        elif key_in(automation, window, element, value, keys):
+        elif key_in(automation, window, element, value, keys, secret):
             done.typed = True
         else:
             done.outcome = 'failed'

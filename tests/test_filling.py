@@ -97,7 +97,7 @@ class FillTests(unittest.TestCase):
         self.locked = set()
         patches = [
             mock.patch.object(filling, 'put', lambda e, v, secret: self.set.append(v) or self.takes[e]),
-            mock.patch.object(filling, 'key_in', lambda a, w, e, v, k: self.typed.append(v) or self.types),
+            mock.patch.object(filling, 'key_in', lambda a, w, e, v, k, secret: self.typed.append(v) or self.types),
             mock.patch.object(filling, 'read_only', lambda e: e in self.locked),
             mock.patch.object(filling, 'submit', lambda *a: self.sent.append(a[-2]) or 'button'),
             mock.patch.object(filling, 'within', lambda a, e, r: True),
@@ -162,6 +162,38 @@ class FillTests(unittest.TestCase):
         with self.form([box(100, words='Email or phone')], 0, None):
             self.assertEqual(self.fill().outcome, 'nothing', 'no box had the keyboard')
         self.assertEqual(self.set, [])
+
+
+class HoldsTests(unittest.TestCase):
+    """Whether a box took what was set or typed into it, as it says."""
+
+    @staticmethod
+    def holds(framework, reads, value='hunter2', password=True):
+        element = SimpleNamespace(CurrentFrameworkId=framework)
+
+        class Pattern:
+            @property
+            def CurrentValue(self):  # noqa: N802 - UI Automation's name
+                if isinstance(reads, Exception):
+                    raise reads
+                return reads
+        return filling.holds(element, Pattern(), value, password, seconds=0.05)
+
+    def test_a_web_pages_password_box_says_its_dots(self):
+        self.assertTrue(self.holds('Chrome', '•' * 7))
+        self.assertFalse(self.holds('Chrome', ''), "Ubisoft Connect's, emptied again by its page")
+        self.assertFalse(self.holds('Chrome', '•' * 3), 'not all of it')
+        self.assertFalse(self.holds('Qt', ''))
+
+    def test_others_are_taken_at_their_word(self):
+        self.assertTrue(self.holds('Win32', ''), "Windows' own reads empty, whatever it holds")
+        self.assertTrue(self.holds('WPF', OSError('not to be read')))
+        self.assertTrue(self.holds('XAML', ''))
+
+    def test_a_text_box_says_what_it_holds(self):
+        self.assertTrue(self.holds('Chrome', 'me@example.com', 'me@example.com', password=False))
+        self.assertFalse(self.holds('Chrome', '', 'me@example.com', password=False))
+        self.assertFalse(self.holds('Win32', 'someone@else.com', 'me@example.com', password=False))
 
 
 BORROWED = ('_use', '_fill', '_keys', '_typed', '_in_password_box', '_in_identifier_box')
