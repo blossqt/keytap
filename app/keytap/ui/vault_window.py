@@ -1405,7 +1405,7 @@ class VaultWindow(QWidget):
             if self._ask(f'Send “{item.name}” to the trash?', 'You can restore it from the trash.', 'Delete'):
                 c.delete_item(item, False, self._done('delete it'))
         elif name == 'delete_forever':
-            if self._ask(f'Delete “{item.name}” forever?', 'It cannot be got back.', 'Delete forever'):
+            if self._ask(f'Delete “{item.name}” forever?', 'It cannot be restored.', 'Delete forever'):
                 c.delete_item(item, True, self._done('delete it'))
         elif name == 'attach':
             path, _ = QFileDialog.getOpenFileName(self, f'Attach a file to “{item.name}”')

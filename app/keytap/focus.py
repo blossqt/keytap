@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from . import win32
+from . import filling, win32
 
 EVENT_SYSTEM_FOREGROUND = 0x0003
 EVENT_OBJECT_FOCUS = 0x8005
@@ -113,6 +113,14 @@ def _automation():
     except Exception:  # noqa: BLE001 - older Windows: default timeouts
         pass
     return automation, automation.CreatePropertyCondition(UIA_IS_PASSWORD_PROPERTY, True)
+
+
+def _in_window(automation, element, window) -> bool:
+    """Whether a box is in this window. Its process usually says; a page in a WebView2 app is
+    another process's (msedgewebview2), so then its place in the window's tree does."""
+    if element.CurrentProcessId == window.pid:
+        return True
+    return filling.within(automation, element, automation.ElementFromHandle(window.hwnd))
 
 
 def is_login_name(words: str) -> bool:
@@ -244,16 +252,24 @@ class FieldWatcher(QObject):
         in its browser, and typing there would send a password to the wrong place."""
         self._request('give', window, then, wait_ms=3000, fallback=False)
 
-    def _request(self, kind: str, window, then, wait_ms: int, fallback) -> None:
-        if self.failed:                 # no UI Automation here at all: nothing to note or check
-            QTimer.singleShot(0, lambda: then(None if kind == 'hold' else True))
+    def fill(self, window, username: str | None, password: str | None, send: bool, keys: tuple,
+             then: Callable[[filling.Filled | None], None]) -> None:
+        """Fill the login form in this window box by box (filling.fill), from the box hold()
+        noted. then(Filled), or then(None) if the program took too long to answer."""
+        self._request('fill', window, then, wait_ms=20000, fallback=None,
+                      payload=(username, password, send, keys))
+
+    def _request(self, kind: str, window, then, wait_ms: int, fallback, payload=()) -> None:
+        unavailable = {'hold': None, 'give': True, 'fill': filling.Filled('nothing')}[kind]
+        if self.failed:                 # no UI Automation here at all: nothing to note, check or fill
+            QTimer.singleShot(0, lambda: then(unavailable))
             return
         self._ensure_thread()
         number = next(self._numbers)
         self._waiting[number] = then
-        self._requests.put((kind, number, window))
+        self._requests.put((kind, number, window, *payload))
         # A program slow to answer - or UI Automation turned out not to start, and can't check.
-        QTimer.singleShot(wait_ms, lambda: self._reply(number, True if kind == 'give' and self.failed else fallback))
+        QTimer.singleShot(wait_ms, lambda: self._reply(number, unavailable if self.failed else fallback))
 
     def _reply(self, number: int, answer) -> None:
         then = self._waiting.pop(number, None)
@@ -302,17 +318,21 @@ class FieldWatcher(QObject):
             self.failed = str(error)
             return
 
+        # A message queue of its own, which bringing a window to the front needs (AttachThreadInput).
+        win32.user32.PeekMessageW(ctypes.byref(wintypes.MSG()), None, 0, 0, 0)
         held = None                 # (hwnd, element): the box a card of Keytap's took the keyboard from
         while True:
             requests = [self._requests.get()]
             while not self._requests.empty():
                 requests.append(self._requests.get())
-            for kind, number, window in (r for r in requests if r[0] != 'look'):     # in order
+            for kind, number, window, *payload in (r for r in requests if r[0] != 'look'):     # in order
                 if kind == 'hold':
                     held = self._hold(automation, window)
                     self._relay.answered.emit(number, None)
-                else:
+                elif kind == 'give':
                     self._relay.answered.emit(number, self._give(automation, window, held))
+                else:
+                    self._relay.answered.emit(number, self._fill(automation, window, held, *payload))
             looks = [r for r in requests if r[0] == 'look']
             if not looks:
                 continue
@@ -332,11 +352,20 @@ class FieldWatcher(QObject):
     def _hold(automation, window):
         try:
             element = automation.GetFocusedElement()
-            if element and element.CurrentProcessId == window.pid:
+            if element and _in_window(automation, element, window):
                 return window.hwnd, element
         except Exception:  # noqa: BLE001 - the program went away, or would not answer
             pass
         return None
+
+    @staticmethod
+    def _fill(automation, window, held, username, password, send, keys) -> filling.Filled:
+        start = held[1] if held is not None and held[0] == window.hwnd else None
+        try:
+            return filling.fill(automation, window, start, username, password, send, keys, is_login_name)
+        except Exception as error:  # noqa: BLE001 - the program went away, or would not answer
+            traceback.print_exc()
+            return filling.Filled('failed', detail=str(error))
 
     @staticmethod
     def _give(automation, window, held) -> bool:
@@ -359,7 +388,7 @@ class FieldWatcher(QObject):
     @staticmethod
     def _inspect(automation, password_box, window) -> tuple[LoginField | None, bool]:
         element = automation.GetFocusedElement()
-        if element is None or element.CurrentProcessId != window.pid:
+        if element is None or not _in_window(automation, element, window):
             return None, False
         control = element.CurrentControlType
         if control != UIA_EDIT:
@@ -381,7 +410,7 @@ class FieldWatcher(QObject):
         node = element
         for _ in range(_ANCESTORS_TO_SEARCH):
             node = walker.GetParentElement(node)
-            if node is None or node.CurrentProcessId != window.pid:
+            if node is None or node.CurrentProcessId != element.CurrentProcessId:
                 break
             if node.FindFirst(TREE_SCOPE_DESCENDANTS, password_box):
                 return LoginField(window, 'username', box, key, page_address(automation, element)), False

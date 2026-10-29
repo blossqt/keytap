@@ -25,7 +25,7 @@ Keytap sits in the tray. Click into the username box of a program, then press:
 
 | Hotkey | What it does |
 |--------|--------------|
-| **Ctrl+Alt+A** | Types the login that goes with this program - username, Tab, password, Enter. If Keytap is not sure which login, it asks. |
+| **Ctrl+Alt+A** | Fills in the login that goes with this program - the username in the username box, the password in the password box - and signs in. If Keytap is not sure which login, it asks. |
 | **Ctrl+Alt+Shift+A** | Always asks: search your vault and choose. |
 
 If the vault is locked, Keytap asks for your master password first, then
@@ -170,9 +170,30 @@ Otherwise Keytap suggests logins whose name or website matches the program or
 window title, and lets you choose. It never types a guess: a password typed
 into the wrong window could end up in a chat box.
 
+## Filling in, box by box
+
+Keytap finds the login form in the window: the box Windows marks as a password
+box gets the password, and the text box just before it the username, wherever
+the keyboard was. Each box gets its value set directly, through UI Automation
+(what screen readers use): no keys are pressed and nothing goes on the
+clipboard, so a busy program can't drop or swap characters and the keyboard
+layout doesn't matter. Then Keytap presses the form's sign-in button (**Log
+in**, **Sign in**, **Next** and the like, by its whole name: never **Can't log
+in?**), or Enter in the password box if it has none. A search box above the
+form is left alone, a username shown but not asked for is skipped, and on a
+page that asks for the email first, only the email goes in.
+
+This works in ordinary Windows programs, WPF and Qt ones, and apps made of web
+pages: Electron, CEF (Ubisoft Connect, say) and WebView2. A box that won't
+take a value set is clicked into and typed into instead. A program that shows
+Windows no boxes at all - a game drawing its own, a remote desktop - gets the
+sequence typed, as below.
+
 ## What gets typed
 
-The default is `{USERNAME}{TAB}{PASSWORD}{ENTER}` (Settings → Typing). A
+The default is `{USERNAME}{TAB}{PASSWORD}{ENTER}` (Settings → Typing), which
+fills in box by box as above wherever it can; so does any part of it, such as
+`{PASSWORD}{ENTER}`. Any other sequence is typed as it is. A
 login with no username just gets `{PASSWORD}{ENTER}`. A login can have its
 own sequence: add a custom field named `autotype`, for example
 `{USERNAME}{ENTER}{DELAY 1500}{PASSWORD}{ENTER}` for a two-page sign-in.
@@ -308,6 +329,11 @@ Tests:
   passkey answers, checked byte for byte against Windows' own encoder.
 - `tests\test_signins.py` runs the sign-in flow against stand-ins for Windows
   and the person.
+- `tests\test_filling.py` covers filling in box by box: which boxes and which
+  button, what is set and what is typed, with UI Automation stood in for.
+`tests\fill_test.py` fills real login windows - classic Windows, Qt, WPF and
+Chromium pages drawn as React draws them - through UI Automation. Their windows
+come up without the keyboard for a few seconds each; nothing is typed.
 `tests\type_test.py` drives the real thing with real keystrokes and clicks
 against a fake vault and test windows of its own, pop-up included. It waits
 for the PC to be idle for 20 seconds, won't start over a full-screen program,

@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>start</title>
+<style>body{font:14px Segoe UI;margin:12px} input{display:block;margin:4px 0 10px;width:260px}</style>
+<div id="top"></div>
+<div id="app"></div>
+<script>
+// Sign-in pages as React draws them, chosen by the address's #: '' (Ubisoft Connect's shape),
+// identifier (email first, "Next"), password-step (username shown, read-only), search-first
+// (a search box above the form), disabled (Log in greyed out until both boxes hold something).
+const kind = location.hash.slice(1);
+const tracked = {}, seen = {};
+let events = 0, state = '';
+const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+function box(id, label, type, extra) {
+  const wrap = document.createElement('div'); wrap.className = 'field';
+  const l = document.createElement('label'); l.textContent = label;
+  const el = document.createElement('input'); el.id = id; el.type = type; el.setAttribute('aria-label', label);
+  Object.assign(el, extra || {});
+  tracked[id] = el.value; seen[id] = el.value;
+  // What a React form sees: an input event whose value differs from what its own code set.
+  Object.defineProperty(el, 'value', {get() { return native.get.call(this); },
+                                      set(v) { tracked[id] = v; native.set.call(this, v); }});
+  el.addEventListener('input', () => { events++; if (el.value !== tracked[id]) { tracked[id] = el.value; seen[id] = el.value; } update(); });
+  wrap.append(l, el); return wrap;
+}
+function button(text, action, type) {
+  const b = document.createElement('button'); b.textContent = text; b.type = type || 'button';
+  b.onclick = (e) => { if (type !== 'submit') { state = action; report(); } }; return b;
+}
+const form = document.createElement('form');
+form.onsubmit = (e) => { e.preventDefault(); state = 'submitted'; report(); };
+if (kind === 'search-first') document.getElementById('top').append(box('q', 'Search', 'search'));
+if (kind === 'identifier') {
+  form.append(box('email', 'Email or phone', 'email'), button('Forgot email?', 'wrong button'), button('Next', '', 'submit'));
+} else if (kind === 'password-step') {
+  form.append(box('shown', 'Email', 'email', {value: 'tester@example.com', readOnly: true}),
+              box('password', 'Enter your password', 'password'), button('Sign in', '', 'submit'));
+} else {
+  form.append(box('email', 'Enter your email address', 'email'), box('password', 'Enter your password', 'password'),
+              button("Can't log in?", 'wrong button'), button('', 'wrong button'), button('Log in', '', 'submit'),
+              button('Or create an account', 'wrong button'));
+}
+document.getElementById('app').append(form);
+const login = [...form.querySelectorAll('button')].find(b => b.type === 'submit');
+function update() {
+  if (kind === 'disabled') login.disabled = !(seen.email && seen.password);
+  report();
+}
+function report() { document.title = JSON.stringify({u: seen.email ?? seen.shown, p: seen.password, q: seen.q, ev: events, s: state}); }
+update();
+</script>

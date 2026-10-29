@@ -303,6 +303,55 @@ class Controller(QObject):
             self.copy(value, _COPY_LABELS[what])
             return
         text = _ACTION_SEQUENCES.get(what) or sequence.for_login(login, self.settings.sequence)
+        copy_code = (what in ('all', 'inline') and bool(login.totp)
+                     and 'TOTP' not in text.upper() and 'OTP}' not in text.upper())
+        plan = sequence.boxes(text) if what in ('all', 'inline', 'username', 'password') else None
+        if plan is not None and (plan[0] and login.username or plan[1] and login.password):
+            self._fill(window, login, what, text, plan, copy_code)
+        else:
+            self._keys(window, login, what, text, copy_code)
+
+    def _fill(self, window, login: Login, what: str, text: str, plan, copy_code: bool) -> None:
+        """Into the form's boxes by what they are, each set directly (filling.py); typed as before
+        where the program shows no boxes."""
+        if not win32.user32.IsWindow(window.hwnd):
+            self.toasts.show('Nothing typed', 'That window has closed.')
+            return
+        if win32.runs_above_us(window.pid):
+            self._typed(typer.BLOCKED, None, window, login, False)
+            return
+        self._hide_inline()
+        win32.set_foreground(window.hwnd)
+        self.typing = True
+        wants_name, wants_password, send = plan
+        username = login.username if wants_name and login.username else None
+        password = login.password if wants_password and login.password else None
+        field = self.field if self.field is not None and self.field.window.hwnd == window.hwnd else None
+
+        def filled(result) -> None:
+            self.typing = False
+            if result is None:
+                self.toasts.show('Nothing typed', f'{window.exe or "That program"} took too long to answer.',
+                                 error=True, action=('Copy password', lambda: self.copy(login.password, 'password')))
+            elif result.outcome == 'nothing':
+                self._keys(window, login, what, text, copy_code)
+            elif result.outcome == 'failed':
+                self.toasts.show('Nothing typed', f'Keytap could not fill the {result.detail or "login"} box. Click '
+                                 f'into it and press {self.settings.hotkeys["type"]} again.', error=True,
+                                 action=('Copy password', lambda: self.copy(login.password, 'password')))
+            else:
+                if password is not None and result.username and not result.password and not login.sequence:
+                    # The username now, the password on the next page - where this login is offered first.
+                    self._just_typed = (window.hwnd, matching.page_site(field.page if field else ''), login.id,
+                                        time.monotonic())
+                if send and not result.submitted:
+                    self.toasts.show('Filled in', 'Press Enter to sign in.')
+                self._typed(typer.DONE, None, window, login, copy_code)
+        self.fields.fill(window, username, password, send, (self.settings.compat_typing, self.settings.key_delay),
+                         filled)
+
+    def _keys(self, window, login: Login, what: str, text: str, copy_code: bool) -> None:
+        """Typed where the keyboard is, key by key, as a sequence says."""
         if what in ('all', 'inline') and self._in_password_box(window):
             text = sequence.from_password_box(text)
         elif what in ('all', 'inline') and self._in_identifier_box(window) and not login.sequence:
@@ -314,8 +363,7 @@ class Controller(QObject):
         except (sequence.SequenceError, totp.TotpError) as error:
             self.toasts.show('Nothing typed', str(error), error=True)
             return
-        self._type(steps, window, login, copy_code=(what in ('all', 'inline') and bool(login.totp)
-                                                    and 'TOTP' not in text.upper() and 'OTP}' not in text.upper()))
+        self._type(steps, window, login, copy_code=copy_code)
 
     def _type(self, steps, window, login: Login, copy_code: bool = False) -> None:
         if not win32.user32.IsWindow(window.hwnd):

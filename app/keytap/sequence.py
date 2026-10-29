@@ -127,6 +127,26 @@ def for_login(login, default: str) -> str:
     return sequence
 
 
+_PLAIN = {
+    ('USERNAME', 'TAB', 'PASSWORD'): (True, True), ('PASSWORD',): (False, True), ('USERNAME',): (True, False),
+}
+
+
+def boxes(sequence: str) -> tuple[bool, bool, bool] | None:
+    """For a sequence that only fills a login form - {USERNAME}{TAB}{PASSWORD}{ENTER} or a part
+    of it - (username, password, send): what goes in its boxes, and whether it is sent. Those
+    are filled box by box (filling.py) rather than typed. None for anything else: it is typed."""
+    parts = _TOKEN.findall(sequence or '')
+    if not parts or not all(part.startswith('{') and part.endswith('}') and len(part) > 2 for part in parts):
+        return None             # text of its own between the placeholders
+    tokens = [part[1:-1].strip().upper() for part in parts]
+    send = tokens[-1] in ('ENTER', 'RETURN')
+    if send:
+        tokens = tokens[:-1]
+    found = _PLAIN.get(tuple(tokens))
+    return (*found, send) if found else None
+
+
 def from_password_box(sequence: str) -> str:
     """The part of a sequence that belongs in the password box, for when the
     cursor is already there: {USERNAME}{TAB}{PASSWORD}{ENTER} becomes
