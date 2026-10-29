@@ -188,7 +188,11 @@ pages: Electron, CEF (Ubisoft Connect, say) and WebView2. A box that won't
 take a value set is clicked into and typed into instead. Some pages drop a set
 value: Ubisoft Connect's empties its password box again at once. A web page's
 password box shows a dot for each character it holds, so Keytap checks for
-them, and types the password where they aren't there. A program that shows
+them, and types the password where they aren't there. A box that takes nothing
+at all, set or typed, may belong to a form driven like a game console's
+(Ubisoft Connect's, with **↵ Select** along its foot): there Enter opens a box
+for typing, so Keytap presses Enter in it and fills it again. It does that only
+where the box says what it holds, so Enter never sends a form early. A program that shows
 Windows no boxes at all - a game drawing its own, a remote desktop - gets the
 sequence typed, as below.
 
@@ -337,8 +341,9 @@ Tests:
 `tests\fill_test.py` fills real login windows - classic Windows, Qt, WPF and
 Chromium pages drawn as React draws them - through UI Automation. Their windows
 come up without the keyboard for a few seconds each; nothing is typed. Its
-`typed-password` case (a page that drops a set password, as Ubisoft Connect's
-does) types with real keys, so it runs only when named.
+`typed-password` case (a page that drops a set password) and `select-first`
+case (a box that opens on Enter, as Ubisoft Connect's do) use real keys, so
+they run only when named.
 `tests\type_test.py` drives the real thing with real keystrokes and clicks
 against a fake vault and test windows of its own, pop-up included. It waits
 for the PC to be idle for 20 seconds, won't start over a full-screen program,

@@ -10,8 +10,9 @@ pressing its Log in button through UI Automation may bring it to the front. Noth
 every box here takes its value set. Edge runs with a profile of its own in %TEMP%. Check the
 window in front first: not over a game.
 
-typed-password (Ubisoft Connect's page: its password box empties itself unless typed into) is
-typed into, with real keys, so it runs only when named, while nobody is using the PC.
+typed-password (a password box that empties itself unless typed into) and select-first (Ubisoft
+Connect's: a box takes nothing until Enter opens it) take real keys, so they run only when named,
+while nobody is using the PC.
 """
 
 import ctypes
@@ -46,8 +47,9 @@ CASES = {
     'email-first': ('chromium', 'identifier', 'username', {'u': USER, 's': 'submitted'}),
     'password-page': ('chromium', 'password-step', 'password', {'u': USER, 'p': PASSWORD, 's': 'submitted'}),
     'typed-password': ('chromium', 'typed-password', 'none', {'u': USER, 'p': PASSWORD, 's': 'submitted'}),
+    'select-first': ('chromium', 'select-first', 'none', {'u': USER, 'p': PASSWORD, 's': 'submitted'}),
 }
-TYPED = {'typed-password'}      # typed into with real keys: run only when named
+TYPED = {'typed-password', 'select-first'}      # real keys (Enter, typing): run only when named
 
 
 def _title(hwnd) -> str:

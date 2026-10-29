@@ -8,8 +8,9 @@
 // Sign-in pages as React draws them, chosen by the address's #: '' (Ubisoft Connect's shape),
 // identifier (email first, "Next"), password-step (username shown, read-only), search-first
 // (a search box above the form), disabled (Log in greyed out until both boxes hold something),
-// typed-password (its password box empties itself again unless typed or pasted into, as
-// Ubisoft Connect's does).
+// typed-password (its password box empties itself again unless typed or pasted into), select-first
+// (driven like a game console's, as Ubisoft Connect's is: a box takes nothing, set or typed, until
+// Enter opens it, and closes again when left).
 const kind = location.hash.slice(1);
 const tracked = {}, seen = {};
 let events = 0, state = '';
@@ -23,10 +24,16 @@ function box(id, label, type, extra) {
   // What a React form sees: an input event whose value differs from what its own code set.
   Object.defineProperty(el, 'value', {get() { return native.get.call(this); },
                                       set(v) { tracked[id] = v; native.set.call(this, v); }});
+  let open = kind !== 'select-first';
+  el.addEventListener('keydown', (e) => {
+    if (!open && e.key === 'Enter') { open = true; e.preventDefault(); }
+    else if (!open) e.preventDefault();                  // keys move between boxes, not into them
+  });
+  el.addEventListener('blur', () => { if (kind === 'select-first') open = false; });
   el.addEventListener('input', (e) => {
     events++;
-    if (kind === 'typed-password' && type === 'password' && !(e instanceof InputEvent && e.inputType)) {
-      native.set.call(el, tracked[id]); return;         // put back as it was: not typed
+    if (kind === 'typed-password' && type === 'password' && !(e instanceof InputEvent && e.inputType) || !open) {
+      native.set.call(el, tracked[id]); return;         // put back as it was: not typed, or not opened
     }
     if (el.value !== tracked[id]) { tracked[id] = el.value; seen[id] = el.value; }
     update();

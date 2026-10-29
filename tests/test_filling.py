@@ -196,6 +196,71 @@ class HoldsTests(unittest.TestCase):
         self.assertFalse(self.holds('Win32', 'someone@else.com', 'me@example.com', password=False))
 
 
+class KeyInTests(unittest.TestCase):
+    """Typing into a box that wouldn't take its value set - and a console-like form's box (Ubisoft
+    Connect's), which takes nothing at all until Enter opens it."""
+
+    def box(self, framework='Chrome', opens_on_enter=False, takes_keys=True, reads_empty=False):
+        state = SimpleNamespace(value='', open=not opens_on_enter, pressed=[])
+
+        class Pattern:
+            @property
+            def CurrentValue(self):  # noqa: N802 - UI Automation's name
+                return '' if reads_empty else state.value
+
+            def SetValue(self, value):  # noqa: N802
+                if state.open:
+                    state.value = value
+        element = SimpleNamespace(CurrentFrameworkId=framework)
+
+        def type_steps(steps, pid, **kwargs):
+            for kind, value in steps:
+                state.pressed.append(value if kind == 'key' else kind)
+                if kind == 'key' and value == filling.VK_RETURN:
+                    state.open = True
+                elif kind == 'text' and state.open and takes_keys:
+                    state.value = value
+            return typer.DONE
+        for name, stand_in in (('give_focus', lambda *a: True), ('_value_pattern', lambda e: Pattern())):
+            patch = mock.patch.object(filling, name, stand_in)
+            patch.start()
+            self.addCleanup(patch.stop)
+        patch = mock.patch.object(typer, 'type_steps', type_steps)
+        patch.start()
+        self.addCleanup(patch.stop)
+        automation = SimpleNamespace(GetFocusedElement=lambda: element, CompareElements=lambda a, b: a is b)
+        return automation, element, state
+
+    def key_in(self, automation, element, value='hunter2', password=True):
+        window = WindowInfo(1, 'Ubisoft Connect', 'Chrome_WidgetWin_1', 10, r'C:\x\upc.exe')
+        return filling.key_in(automation, window, element, value, (False, 10), password)
+
+    def test_typed_where_keys_are_taken(self):
+        automation, element, state = self.box()
+        self.assertTrue(self.key_in(automation, element))
+        self.assertEqual(state.value, 'hunter2')
+        self.assertNotIn(filling.VK_RETURN, state.pressed, 'no Enter: it would send the form')
+
+    def test_a_console_like_box_is_opened_with_enter(self):
+        for password in (True, False):
+            automation, element, state = self.box(opens_on_enter=True)
+            self.assertTrue(self.key_in(automation, element, password=password))
+            self.assertEqual(state.value, 'hunter2')
+            self.assertEqual(state.pressed.count(filling.VK_RETURN), 1)
+
+    def test_never_enter_where_the_box_cant_say(self):
+        automation, element, state = self.box('Win32', opens_on_enter=True, reads_empty=True)
+        self.assertTrue(self.key_in(automation, element), "Windows' own password box: taken at its word")
+        self.assertNotIn(filling.VK_RETURN, state.pressed)
+
+    def test_a_box_that_takes_nothing(self):
+        automation, element, state = self.box(opens_on_enter=True, takes_keys=False)
+        state.open = False
+        with mock.patch.object(filling, 'put', lambda *a: False):
+            self.assertFalse(self.key_in(automation, element))
+        self.assertEqual(state.pressed.count(filling.VK_RETURN), 1, 'Enter once, not again and again')
+
+
 BORROWED = ('_use', '_fill', '_keys', '_typed', '_in_password_box', '_in_identifier_box')
 
 

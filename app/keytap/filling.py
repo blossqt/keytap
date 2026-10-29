@@ -280,19 +280,60 @@ def give_focus(automation, window, element, seconds: float = 0.8) -> bool:
 
 def key_in(automation, window, element, value: str, keys: tuple, password: bool) -> bool:
     """Type value into a box that wouldn't take it set, over whatever it held, and see that it
-    holds it."""
+    holds it.
+
+    A box that took nothing at all, set or typed, may be in a form driven like a game console's
+    (Ubisoft Connect's: "↵ Select" along its foot): there a box opens for typing on Enter, and
+    drops everything until then. So it gets Enter, and is set again - only where the box says
+    what it holds, so Enter never sends a form whose box took the keys after all."""
     if not give_focus(automation, window, element):
-        return False
-    steps = [('chord', (VK_CONTROL, 0x41)), ('text', value)]       # Ctrl+A: over what is there
-    if typer.type_steps(steps, window.pid, compat=keys[0], key_delay_ms=keys[1], settle_ms=0) != typer.DONE:
         return False
     try:
         pattern = _value_pattern(element)
-        if pattern is not None and not password:
-            return bool(pattern.CurrentValue)       # something landed: a box may shape it (a phone number's)
+        before = pattern.CurrentValue or '' if pattern is not None else None
+        telling = pattern is not None and (not password or element.CurrentFrameworkId in DOTTED)
     except Exception:  # noqa: BLE001
+        pattern, before, telling = None, None, False
+    if not _type_over(window, value, keys):
+        return False
+    if pattern is None:
         return True
-    return pattern is None or holds(element, pattern, value, password, seconds=1.5)
+    if _landed(element, pattern, value, password, before, seconds=0.4):
+        return True
+    try:
+        untouched = telling and (pattern.CurrentValue or '') == before and \
+            automation.CompareElements(automation.GetFocusedElement(), element)
+    except Exception:  # noqa: BLE001
+        untouched = False
+    if not untouched or typer.type_steps([('key', VK_RETURN)], window.pid, settle_ms=0) != typer.DONE:
+        return _landed(element, pattern, value, password, before, seconds=1.1)
+    time.sleep(0.15)
+    if put(element, value, password):
+        return True
+    return _type_over(window, value, keys) and _landed(element, pattern, value, password, before, seconds=1.5)
+
+
+def _type_over(window, value: str, keys: tuple) -> bool:
+    steps = [('chord', (VK_CONTROL, 0x41)), ('text', value)]       # Ctrl+A: over what is there
+    return typer.type_steps(steps, window.pid, compat=keys[0], key_delay_ms=keys[1], settle_ms=0) == typer.DONE
+
+
+def _landed(element, pattern, value: str, password: bool, before, seconds: float) -> bool:
+    """Whether what was typed is in the box. A password box must say so (holds); a text box needs
+    only to have changed, since it may shape what is typed (a phone number's)."""
+    if password:
+        return holds(element, pattern, value, password, seconds=seconds)
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            now = pattern.CurrentValue or ''
+        except Exception:  # noqa: BLE001
+            return True
+        if now and (now == value or now != before):
+            return True
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
 
 
 def _invoke(element) -> bool:
