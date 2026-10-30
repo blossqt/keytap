@@ -3,24 +3,17 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QKeySequence
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                                QHBoxLayout, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMessageBox, QPushButton, QSpinBox, QTabWidget,
-                               QVBoxLayout, QWidget)
+                               QListWidgetItem, QMessageBox, QPushButton, QSpinBox,
+                               QVBoxLayout)
 
 from .. import __version__, background, hotkeys, matching, sequence, win32
 from ..settings import IDLE_CHOICES
 from ..vault import SERVERS, Bitwarden, Status
-from . import icons, theme
-
-
-def _heading(text: str) -> QLabel:
-    label = QLabel(text)
-    font = label.font()
-    font.setWeight(QFont.DemiBold)
-    label.setFont(font)
-    return label
+from . import icons, suitesettings, theme
+from .suitesettings import form, framed, label, note, section, switch
 
 
 def _note(text: str) -> QLabel:
@@ -28,14 +21,6 @@ def _note(text: str) -> QLabel:
     label.setWordWrap(True)
     label.setEnabled(False)
     return label
-
-
-def _page(tabs: QTabWidget, title: str) -> tuple[QWidget, QVBoxLayout]:
-    page = QWidget()
-    layout = QVBoxLayout(page)
-    layout.setContentsMargins(14, 14, 14, 10)
-    tabs.addTab(page, title)
-    return page, layout
 
 
 def bring_up(dialog: QDialog) -> None:
@@ -181,6 +166,9 @@ class SignInDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
+    PAGES = [('\ue80f', 'General'), ('\ue765', 'Typing'), ('\ue71d', 'Programs'), ('\ue72e', 'Locking'),
+             ('\ue8d7', 'Passkeys')]
+
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         theme.frost(self, backdrop=theme.BACKDROP)
@@ -188,19 +176,18 @@ class SettingsDialog(QDialog):
         self.settings = controller.settings
         self.setWindowTitle('Keytap settings')
         self.setWindowIcon(icons.app_icon())
-        self.setMinimumWidth(540)
-        outer = QVBoxLayout(self)
-        tabs = QTabWidget()
-        outer.addWidget(tabs)
+        frame = suitesettings.SettingsFrame(self, icons.render_app_icon(28))
+        pages = iter(self.PAGES)
 
         # ---------------------------------------------------------------- general
-        page, layout = _page(tabs, 'General')
+        layout = frame.add(*next(pages))
         status = controller.status
         words = {'missing': "Bitwarden's command-line tool is missing", 'checking': 'Starting…',
                  'unauthenticated': 'Not signed in to Bitwarden', 'locked': 'Locked',
                  'unlocked': 'Unlocked'}
-        layout.addWidget(_heading(words.get(status.state, status.state)))
+        box_frame, box = section(words.get(status.state, status.state))
         row = QHBoxLayout()
+        row.setSpacing(8)
         if status.state in ('locked', 'unlocked'):
             lock = QPushButton('Lock now' if controller.unlocked else 'Unlock…')
             lock.clicked.connect(lambda: (self.reject(), controller._lock_or_unlock()))
@@ -216,21 +203,10 @@ class SettingsDialog(QDialog):
         quit_button = QPushButton('Quit Keytap')
         quit_button.clicked.connect(lambda: (self.reject(), controller.quit()))
         row.addWidget(quit_button)
-        layout.addLayout(row)
+        box.addLayout(row)
+        layout.addWidget(box_frame)
 
-        layout.addSpacing(10)
-        layout.addWidget(_heading('Tray'))
-        self._tray = QCheckBox('Show Keytap in the tray')
-        self._tray.setChecked(self.settings.tray_shown)
-        layout.addWidget(self._tray)
-        layout.addWidget(_note('In Hanami\'s cherry blossom while Hanami runs, otherwise an icon of its own. '
-                               'Turned off, open Keytap again - from Start or Hanami - to come back here.'))
-        self._startup = QCheckBox('Start Keytap when I sign in to Windows')
-        self._startup.setChecked(win32.starts_with_windows())
-        layout.addWidget(self._startup)
-
-        layout.addSpacing(10)
-        layout.addWidget(_heading('Bitwarden'))
+        box_frame, box = section('Bitwarden')
         if status.state == 'unauthenticated':
             account = 'Not signed in'
         else:
@@ -238,7 +214,7 @@ class SettingsDialog(QDialog):
             if status.server:
                 account += f' on {status.server}'
         row = QHBoxLayout()
-        row.addWidget(QLabel(account), 1)
+        row.addWidget(label(account), 1)
         if status.state not in ('unauthenticated', 'missing'):
             sign_out = QPushButton('Sign out')
             sign_out.clicked.connect(self._sign_out)
@@ -247,79 +223,93 @@ class SettingsDialog(QDialog):
             sign_in = QPushButton('Sign in…')
             sign_in.clicked.connect(lambda: (self.reject(), controller.show_sign_in()))
             row.addWidget(sign_in)
-        layout.addLayout(row)
+        box.addLayout(row)
+        layout.addWidget(box_frame)
+
+        box_frame, box = section('Starting and the tray')
+        holder, self._startup = switch('Start Keytap when I sign in to Windows', '', win32.starts_with_windows())
+        box.addWidget(holder)
+        holder, self._tray = switch('Show Keytap in the tray',
+                                    'In Hanami\'s cherry blossom while Hanami runs, otherwise an icon of its own. '
+                                    'Turned off, open Keytap again - from Start or Hanami - to come back here.',
+                                    self.settings.tray_shown)
+        box.addWidget(holder)
+        layout.addWidget(box_frame)
         layout.addStretch(1)
 
         # ---------------------------------------------------------------- typing
-        page, layout = _page(tabs, 'Typing')
-        layout.addWidget(_heading('Hotkeys'))
-        form = QFormLayout()
+        layout = frame.add(*next(pages))
+        box_frame, box = section('Hotkeys')
+        rows = form()
         current = self.settings.hotkeys
         self._keys = {}
-        for action, label in (('type', 'Type the login for this window:'),
-                              ('pick', 'Choose a login to type:')):
+        for action, title in (('type', 'Type the login for this window'),
+                              ('pick', 'Choose a login to type')):
             edit = QKeySequenceEdit(QKeySequence(current[action]))
             edit.setMaximumSequenceLength(1)
             edit.setClearButtonEnabled(True)
             self._keys[action] = edit
-            form.addRow(label, edit)
-        layout.addLayout(form)
+            rows.addRow(label(title), edit)
+        box.addLayout(rows)
         problems = controller.hotkey_problems
         if problems:
-            layout.addWidget(_note('<span style="color:#c62828">' +
-                                   '<br>'.join(problems.values()) + '</span>'))
+            box.addWidget(label('\n'.join(problems.values()), 8.5, role='error', wrap=True))
+        layout.addWidget(box_frame)
 
-        layout.addSpacing(10)
-        layout.addWidget(_heading('What gets typed'))
-        form = QFormLayout()
+        box_frame, box = section('What gets typed')
+        rows = form()
         self._sequence = QLineEdit(self.settings.sequence)
-        form.addRow('Type:', self._sequence)
-        layout.addLayout(form)
-        layout.addWidget(_note(
+        rows.addRow(label('Type'), self._sequence)
+        box.addLayout(rows)
+        sequence_note = note(
             '{USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {DELAY 500} and more. A login can have its '
             'own: add a custom field named <i>autotype</i>. To tie a login to a program, give it the '
-            'URI <i>app://program.exe</i>, or <i>title://text</i> for a window title.'))
-        self._compat = QCheckBox('Type as key presses, for games, remote desktops and virtual machines')
-        self._compat.setChecked(self.settings.compat_typing)
-        layout.addWidget(self._compat)
+            'URI <i>app://program.exe</i>, or <i>title://text</i> for a window title.')
+        sequence_note.setTextFormat(Qt.RichText)
+        box.addWidget(sequence_note)
+        holder, self._compat = switch('Type as key presses, for games, remote desktops and virtual machines', '',
+                                      self.settings.compat_typing)
+        box.addWidget(holder)
         row = QHBoxLayout()
-        row.addWidget(QLabel('Pause between keys:'))
+        row.addWidget(label('Pause between keys'))
         self._delay = QSpinBox()
         self._delay.setRange(0, 500)
         self._delay.setSuffix(' ms')
         self._delay.setValue(self.settings.key_delay)
         row.addWidget(self._delay)
         row.addStretch(1)
-        layout.addLayout(row)
+        box.addLayout(row)
+        layout.addWidget(box_frame)
         layout.addStretch(1)
 
         # ---------------------------------------------------------------- pop-up and programs
-        page, layout = _page(tabs, 'Programs')
-        layout.addWidget(_heading('Pop-up in login boxes'))
-        self._inline = QCheckBox('List my logins when I click into a login box')
-        self._inline.setChecked(self.settings.inline)
-        layout.addWidget(self._inline)
-        layout.addWidget(_note('Not in browsers - the Bitwarden extension does that there. Games that draw '
-                               'their own screens cannot show it; the hotkey still works in them.'))
-        self._muted = QListWidget()
+        layout = frame.add(*next(pages))
+        box_frame, box = section('Pop-up in login boxes')
+        holder, self._inline = switch('List my logins when I click into a login box',
+                                      'Not in browsers - the Bitwarden extension does that there. Games that draw '
+                                      'their own screens cannot show it; the hotkey still works in them.',
+                                      self.settings.inline)
+        box.addWidget(holder)
+        self._muted = framed(QListWidget())
         self._muted.setMaximumHeight(80)
         for program in self.settings.inline_muted:
             self._muted.addItem(program)
         unmute = QPushButton('Pop up again')
         unmute.clicked.connect(lambda: [self._muted.takeItem(self._muted.row(i))
                                         for i in self._muted.selectedItems()])
-        if not self._muted.count():
-            self._muted.addItem("Programs you choose “Don't pop up in” for are listed here")
-            self._muted.setEnabled(False)
-            unmute.setEnabled(False)
         row = QHBoxLayout()
         row.addWidget(self._muted, 1)
         row.addWidget(unmute, 0, Qt.AlignTop)
-        layout.addLayout(row)
+        box.addLayout(row)
+        if not self._muted.count():                 # (disabled: nothing of it is saved)
+            self._muted.setEnabled(False)
+            self._muted.hide()
+            unmute.hide()
+            box.addWidget(note("Programs you choose “Don't pop up in” for are listed here."))
+        layout.addWidget(box_frame)
 
-        layout.addSpacing(10)
-        layout.addWidget(_heading('Remembered programs'))
-        self._links = QListWidget()
+        box_frame, box = section('Remembered programs')
+        self._links = framed(QListWidget())
         self._links.setMaximumHeight(120)
         self._links.setSelectionMode(QListWidget.ExtendedSelection)
         for key, value in sorted(self.settings.links.items()):
@@ -330,31 +320,32 @@ class SettingsDialog(QDialog):
         forget = QPushButton('Forget')
         forget.clicked.connect(lambda: [self._links.takeItem(self._links.row(i))
                                         for i in self._links.selectedItems()])
-        whole_site = QPushButton('Any login for\nits website')
+        whole_site = QPushButton('Any login for its website')
         whole_site.setToolTip('Other accounts on the same website count too, not only the login you chose')
         whole_site.clicked.connect(self._links_to_sites)
-        if not self._links.count():
-            self._links.addItem('None yet - tick “Always use” in the picker')
-            self._links.setEnabled(False)
-            forget.setEnabled(False)
-            whole_site.setEnabled(False)
-        buttons = QVBoxLayout()
-        buttons.addWidget(forget)
-        buttons.addWidget(whole_site)
-        buttons.addStretch(1)
+        box.addWidget(self._links)
         row = QHBoxLayout()
-        row.addWidget(self._links, 1)
-        row.addLayout(buttons)
-        layout.addLayout(row)
+        row.setSpacing(8)
+        row.addWidget(forget)
+        row.addWidget(whole_site)
+        row.addStretch(1)
+        box.addLayout(row)
+        if not self._links.count():                 # (disabled: nothing of it is saved)
+            self._links.setEnabled(False)
+            for widget in (self._links, forget, whole_site):
+                widget.hide()
+            box.addWidget(note('None yet. Tick “Always use” in the picker to tie a login to a program.'))
+        layout.addWidget(box_frame)
         layout.addStretch(1)
 
         # ---------------------------------------------------------------- locking
-        page, layout = _page(tabs, 'Locking')
-        self._with_windows = QCheckBox('Lock when Windows locks or goes to sleep')
-        self._with_windows.setChecked(self.settings.lock_with_windows)
-        layout.addWidget(self._with_windows)
+        layout = frame.add(*next(pages))
+        box_frame, box = section('')
+        holder, self._with_windows = switch('Lock when Windows locks or goes to sleep', '',
+                                            self.settings.lock_with_windows)
+        box.addWidget(holder)
         row = QHBoxLayout()
-        row.addWidget(QLabel('Lock after the PC is idle for:'))
+        row.addWidget(label('Lock after the PC is idle for'))
         self._idle = QComboBox()
         for minutes in IDLE_CHOICES:
             self._idle.addItem('Never' if not minutes else
@@ -363,19 +354,19 @@ class SettingsDialog(QDialog):
         self._idle.setCurrentIndex(IDLE_CHOICES.index(self.settings.idle_minutes))
         row.addWidget(self._idle)
         row.addStretch(1)
-        layout.addLayout(row)
-        layout.addWidget(_note('Locking forgets your logins until you unlock again, and has Bitwarden '
-                               'destroy the session key. Quitting Keytap locks it too.'))
+        box.addLayout(row)
+        box.addWidget(note('Locking forgets your logins until you unlock again, and has Bitwarden '
+                           'destroy the session key. Quitting Keytap locks it too.'))
+        layout.addWidget(box_frame)
 
-        layout.addSpacing(10)
-        layout.addWidget(_heading('Windows Hello'))
+        box_frame, box = section('Windows Hello')
         row = QHBoxLayout()
-        self._hello_state = QLabel()
+        self._hello_state = label('')
         row.addWidget(self._hello_state, 1)
         self._hello = QPushButton()
         self._hello.clicked.connect(self._toggle_hello)
         row.addWidget(self._hello)
-        layout.addLayout(row)
+        box.addLayout(row)
         if not controller.hello_supported and not controller.hello_on():
             why = ('Windows Hello is not set up on this PC. Set up a PIN, fingerprint or face in Windows '
                    'Settings → Accounts → Sign-in options, then come back here.')
@@ -383,22 +374,22 @@ class SettingsDialog(QDialog):
             why = ("Unlock with your fingerprint, face or PIN instead of your master password. As in "
                    "Bitwarden's desktop app, Keytap keeps your master password sealed so that only Windows "
                    'Hello, on your Windows account, can open it.')
-        layout.addWidget(_note(why))
+        box.addWidget(note(why))
         self._show_hello()
+        layout.addWidget(box_frame)
         layout.addStretch(1)
 
         # ---------------------------------------------------------------- passkeys
-        page, layout = _page(tabs, 'Passkeys')
-        layout.addWidget(_heading('Passkeys in your vault'))
-        layout.addWidget(_note(
+        layout = frame.add(*next(pages), about=(
             "When a website or app asks for a passkey, Windows' passkey window can offer Keytap. Keytap signs "
             'in with the passkeys in your Bitwarden vault, and saves new ones to it, checking it is you with '
             "Windows Hello. A new passkey goes with the site's login for that account, or in a new login."))
-        layout.addSpacing(6)
-        self._passkey_steps = QLabel('Checking…')
+        box_frame, box = section('')
+        self._passkey_steps = label('Checking…')
         self._passkey_steps.setTextFormat(Qt.RichText)
-        layout.addWidget(self._passkey_steps)
+        box.addWidget(self._passkey_steps)
         row = QHBoxLayout()
+        row.setSpacing(8)
         self._passkey_setup = QPushButton('Set up passkeys…')
         self._passkey_setup.clicked.connect(lambda: (self.reject(), controller.set_up_passkeys()))
         self._passkey_windows = QPushButton('Open Windows passkey settings')
@@ -409,24 +400,25 @@ class SettingsDialog(QDialog):
             button.hide()
             row.addWidget(button)
         row.addStretch(1)
-        layout.addLayout(row)
-        layout.addWidget(_note('Setting up asks Windows, once, to trust Keytap\'s certificate (an administrator '
-                               'prompt): Windows takes passkey providers only from signed app packages, and '
-                               'Keytap\'s gives it that identity without moving any of its files.'))
+        box.addLayout(row)
+        box.addWidget(note('Setting up asks Windows, once, to trust Keytap\'s certificate (an administrator '
+                           'prompt): Windows takes passkey providers only from signed app packages, and '
+                           'Keytap\'s gives it that identity without moving any of its files.'))
+        layout.addWidget(box_frame)
         layout.addStretch(1)
         background.run(controller.passkey_status, self._show_passkeys)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setProperty('role', 'primary')
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         cli = controller.cli_version
-        about = QLabel(f'Keytap {__version__}' + (f'  ·  Bitwarden CLI {cli}' if cli else ''))
-        about.setEnabled(False)
         bottom = QHBoxLayout()
-        bottom.addWidget(about)
+        bottom.addWidget(label(f'Keytap {__version__}' + (f'  ·  Bitwarden CLI {cli}' if cli else ''), 9,
+                               role='dim'))
         bottom.addStretch(1)
         bottom.addWidget(buttons)
-        outer.addLayout(bottom)
+        frame.footer(bottom)
 
     def _show_passkeys(self, status, error) -> None:
         try:
