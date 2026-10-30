@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogBut
 from .. import items as kinds
 from .. import totp
 from ..items import CARD, IDENTITY, LOGIN, NOTE, SSH_KEY, Item
-from . import icons, theme
+from . import icons, suitesettings, theme
 
 DOTS = '•' * 12           # the same length whatever the password's, which a screen would otherwise give away
 ROW_HEIGHT = 52
@@ -1034,7 +1034,6 @@ class VaultWindow(QWidget):
     def _style(self) -> str:
         c = theme.colors()
         border = c.border.name(QColor.HexArgb)
-        pill = 14 if theme.liquid_controls_css() else 8
         return theme.card_style() + theme.panel_css('QFrame#sectionBox', 10) + f"""
             QWidget#vault {{ background: {theme.css(c.card)}; }}
             QWidget#header {{ background: {theme.css(c.card)}; border-bottom: 1px solid {border}; }}
@@ -1043,9 +1042,6 @@ class VaultWindow(QWidget):
             QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
             QFrame#rule {{ background: {border}; border: none; margin: 0 12px; }}
             QListWidget#filters {{ background: transparent; border: none; outline: none; }}
-            QListWidget#filters::item {{ color: {c.text.name()}; padding: 0px 8px; border-radius: {pill}px; }}
-            QListWidget#filters::item:selected {{ background: {c.selected.name()}; color: {c.selected_text.name()}; }}
-            QListWidget#filters::item:hover:!selected {{ background: {theme.css(c.hover)}; }}
             QListView#items {{ background: transparent; border: none; outline: none; }}
             QTextEdit#text {{ color: {c.text.name()}; background: transparent; border: none;
                               selection-background-color: {theme.ACCENT}; selection-color: {theme.ON_ACCENT}; }}
@@ -1128,9 +1124,8 @@ class VaultWindow(QWidget):
         column.setContentsMargins(10, 14, 10, 10)
         self.filters = QListWidget()
         self.filters.setObjectName('filters')
-        self.filters.setIconSize(QSize(16, 16))
-        self.filters.setFont(theme.font(9.25))
         self.filters.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)     # a long folder name is cut short
+        suitesettings.sidebar(self.filters)        # the settings window's rows and sliding pill
         self.filters.currentRowChanged.connect(lambda _: self._filter_changed())
         self.filters.setContextMenuPolicy(Qt.CustomContextMenu)
         self.filters.customContextMenuRequested.connect(self._filter_menu)
@@ -1172,7 +1167,7 @@ class VaultWindow(QWidget):
     def _fit_panes(self) -> None:
         """In a narrower window the filters and the list narrow too, so the item keeps room."""
         width = self.width()
-        self.sidebar.setFixedWidth(round(min(210, max(180, width * 0.2))))
+        self.sidebar.setFixedWidth(round(min(232, max(188, width * 0.22))))
         self.middle.setFixedWidth(round(min(330, max(250, width * 0.32))))
 
     def resizeEvent(self, event):
@@ -1268,17 +1263,13 @@ class VaultWindow(QWidget):
         for entry in entries:
             if isinstance(entry, str):
                 heading = QListWidgetItem(entry)
-                heading.setFlags(Qt.NoItemFlags)
-                heading.setFont(theme.font(8.5, QFont.DemiBold))
-                heading.setForeground(dim)
-                heading.setTextAlignment(Qt.AlignLeft | Qt.AlignBottom)       # nearer its own rows than those above
-                heading.setSizeHint(QSize(10, 32 if entry else 8))
+                heading.setFlags(Qt.NoItemFlags)        # a heading (or, empty, a gap)
                 self.filters.addItem(heading)
                 continue
             key, glyph, name, count = entry
-            item = QListWidgetItem(QIcon(icons.glyph(glyph, dim, 16, 1.8)), f'{name}   {count}')
+            item = QListWidgetItem(QIcon(icons.glyph(glyph, dim, 16, 1.8)), name)
             item.setData(Qt.UserRole, key)
-            item.setSizeHint(QSize(10, 34))
+            item.setData(suitesettings.COUNT, count)
             self.filters.addItem(item)
         rows = [tuple(self.filters.item(i).data(Qt.UserRole) or ()) for i in range(self.filters.count())]
         self.filters.setCurrentRow(rows.index(chosen) if chosen in rows else 0)

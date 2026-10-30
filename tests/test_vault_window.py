@@ -63,7 +63,7 @@ class VaultWindowTest(unittest.TestCase):
     def test_lists_sorted_with_filters_and_folders(self):
         self.assertEqual(self.names(), ['android.instagram.com', 'Bank', 'GitHub', 'Steam Community',
                                         'store.steampowered.com'])
-        filters = [self.window.filters.item(i).text() for i in range(self.window.filters.count())]
+        filters = filter_rows(self.window.filters)
         self.assertEqual(filters, ['All items   5', 'Favourites   1', 'Verification codes   1', 'Types', 'Logins   5',
                                    'Cards   0', 'Identities   0', 'Notes   0', 'SSH keys   0', 'Folders',
                                    'Games   2', 'Work   1', 'No folder   2', '', 'Archive   0', 'Trash   0'])
@@ -244,6 +244,17 @@ class RememberTests(unittest.TestCase):
         self.assertEqual(items[0].text(), 'steam.exe  →  any login for steampowered.com')
         self.assertEqual(items[1].text(), 'notepad.exe  →  Bank')
         self.assertIn('no website', told[0], 'the Bank login has none')
+
+
+def filter_rows(filters) -> list[str]:
+    """The sidebar's rows as they read: a name, and its count after it."""
+    from keytap.ui.suitesettings import COUNT
+    rows = []
+    for i in range(filters.count()):
+        item = filters.item(i)
+        count = item.data(COUNT)
+        rows.append(item.text() if count is None else f'{item.text()}   {count}')
+    return rows
 
 
 def matching_window():

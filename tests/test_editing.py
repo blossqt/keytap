@@ -77,6 +77,17 @@ def texts(widget) -> str:
                      [text.text() for text in widget.findChildren(QTextEdit)])
 
 
+def filter_rows(filters) -> list[str]:
+    """The sidebar's rows as they read: a name, and its count after it."""
+    from keytap.ui.suitesettings import COUNT
+    rows = []
+    for i in range(filters.count()):
+        item = filters.item(i)
+        count = item.data(COUNT)
+        rows.append(item.text() if count is None else f'{item.text()}   {count}')
+    return rows
+
+
 class EditingTests(unittest.TestCase):
     def setUp(self):
         self.fake = FakeVault()
@@ -138,7 +149,7 @@ class EditingTests(unittest.TestCase):
     # ------------------------------------------------------------------ showing
 
     def test_every_kind_is_shown(self):
-        filters = [self.window.filters.item(i).text() for i in range(self.window.filters.count())]
+        filters = filter_rows(self.window.filters)
         for wanted in ('All items   6', 'Logins   2', 'Cards   1', 'Identities   1', 'Notes   1', 'SSH keys   1',
                        'Games   1', 'Collections', 'Shared   0', 'Archive   1', 'Trash   1'):
             self.assertIn(wanted, filters)
