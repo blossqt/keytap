@@ -64,8 +64,8 @@ class VaultWindowTest(unittest.TestCase):
         self.assertEqual(self.names(), ['android.instagram.com', 'Bank', 'GitHub', 'Steam Community',
                                         'store.steampowered.com'])
         filters = [self.window.filters.item(i).text() for i in range(self.window.filters.count())]
-        self.assertEqual(filters, ['All items   5', 'Favourites   1', 'Verification codes   1', 'TYPES', 'Logins   5',
-                                   'Cards   0', 'Identities   0', 'Notes   0', 'SSH keys   0', 'FOLDERS',
+        self.assertEqual(filters, ['All items   5', 'Favourites   1', 'Verification codes   1', 'Types', 'Logins   5',
+                                   'Cards   0', 'Identities   0', 'Notes   0', 'SSH keys   0', 'Folders',
                                    'Games   2', 'Work   1', 'No folder   2', '', 'Archive   0', 'Trash   0'])
         self.window.filters.setCurrentRow(10)                # Games
         self.assertEqual(self.names(), ['Steam Community', 'store.steampowered.com'])

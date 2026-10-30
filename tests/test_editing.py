@@ -140,7 +140,7 @@ class EditingTests(unittest.TestCase):
     def test_every_kind_is_shown(self):
         filters = [self.window.filters.item(i).text() for i in range(self.window.filters.count())]
         for wanted in ('All items   6', 'Logins   2', 'Cards   1', 'Identities   1', 'Notes   1', 'SSH keys   1',
-                       'Games   1', 'COLLECTIONS', 'Shared   0', 'Archive   1', 'Trash   1'):
+                       'Games   1', 'Collections', 'Shared   0', 'Archive   1', 'Trash   1'):
             self.assertIn(wanted, filters)
         self.select('Bank card')
         self.assertNotIn('A Person', texts(self.window.details), 'asks for the master password first')

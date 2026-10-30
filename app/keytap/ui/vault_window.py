@@ -148,10 +148,10 @@ class _Text(QTextEdit):
         event.ignore()                          # the pane scrolls, not the text
 
 
-def avatar(name: str, size: int, on_pink: bool = False, kind: int = LOGIN) -> QPixmap:
+def avatar(name: str, size: int, on_pink: bool = False, kind: int = LOGIN, quiet: bool = False) -> QPixmap:
     """An item's stand-in for a website icon: a login's initial, or its kind's drawing, in the suite's
     pink. Keytap fetches no icons, so no website learns what is in the vault. On a pink row it turns
-    pale, to stand out."""
+    pale, to stand out; quiet, in a list row not chosen, it is grey, so the chosen row is the pink one."""
     ratio = 2.0
     pixmap = QPixmap(round(size * ratio), round(size * ratio))
     pixmap.setDevicePixelRatio(ratio)
@@ -159,16 +159,18 @@ def avatar(name: str, size: int, on_pink: bool = False, kind: int = LOGIN) -> QP
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor(255, 255, 255, 200) if on_pink else QColor(theme.ACCENT))
+    c = theme.colors()
+    painter.setBrush(QColor(255, 255, 255, 200) if on_pink else c.chip if quiet else QColor(theme.ACCENT))
+    ink = c.dim if quiet and not on_pink else QColor(theme.ON_ACCENT)
     painter.drawRoundedRect(QRectF(0, 0, size, size), size * 0.28, size * 0.28)
     if kind != LOGIN:
         inner = round(size * 0.56)
         offset = (size - inner) / 2
         painter.drawPixmap(QRectF(offset, offset, inner, inner).toRect(),
-                           icons.glyph(kinds.GLYPHS[kind], theme.ON_ACCENT, inner, 1.9))
+                           icons.glyph(kinds.GLYPHS[kind], ink, inner, 1.9))
         painter.end()
         return pixmap
-    painter.setPen(QColor(theme.ON_ACCENT))
+    painter.setPen(ink)
     painter.setFont(theme.font(size * 0.36, QFont.DemiBold))
     initial = next((ch for ch in name if ch.isalnum()), '?').upper()
     painter.drawText(QRectF(0, 0, size, size), Qt.AlignCenter, initial)
@@ -288,7 +290,7 @@ class _ItemDelegate(QStyledItemDelegate):
             painter.setBrush(c.selected if selected else c.hover)
             painter.drawRoundedRect(rect, 9, 9)
         text, dim = (c.selected_text, c.selected_text) if selected else (c.text, c.dim)
-        painter.drawPixmap(rect.left() + 10, rect.center().y() - 15, avatar(item.name, 30, selected, item.type))
+        painter.drawPixmap(rect.left() + 10, rect.center().y() - 15, avatar(item.name, 30, selected, item.type, quiet=True))
         right = rect.right() - 10
         for wanted, name in ((item.reprompt, 'lock'), (item.favorite, 'star'), (bool(item.attachments), 'clip')):
             if wanted:
@@ -378,7 +380,7 @@ class _Section(QFrame):
         outer = QVBoxLayout()
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(6)
-        outer.addWidget(_label(title.upper(), 7.75, QFont.DemiBold, role='dim'))
+        outer.addWidget(_label(title, 8.5, QFont.DemiBold, role='dim'))
         self.box = QFrame()
         self.box.setObjectName('sectionBox')
         self.rows = QVBoxLayout(self.box)
@@ -1041,7 +1043,7 @@ class VaultWindow(QWidget):
             QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
             QFrame#rule {{ background: {border}; border: none; margin: 0 12px; }}
             QListWidget#filters {{ background: transparent; border: none; outline: none; }}
-            QListWidget#filters::item {{ color: {c.text.name()}; padding: 7px 8px; border-radius: {pill}px; }}
+            QListWidget#filters::item {{ color: {c.text.name()}; padding: 0px 8px; border-radius: {pill}px; }}
             QListWidget#filters::item:selected {{ background: {c.selected.name()}; color: {c.selected_text.name()}; }}
             QListWidget#filters::item:hover:!selected {{ background: {theme.css(c.hover)}; }}
             QListView#items {{ background: transparent; border: none; outline: none; }}
@@ -1236,18 +1238,18 @@ class VaultWindow(QWidget):
         entries = [(('all', ''), 'grid', 'All items', len(live)),
                    (('favorites', ''), 'star_line', 'Favourites', sum(item.favorite for item in live)),
                    (('codes', ''), 'clock', 'Verification codes', sum(item.has_code for item in live)),
-                   'TYPES']
+                   'Types']
         for kind in kinds.KINDS:
             entries.append((('kind', str(kind)), kinds.GLYPHS[kind], kinds.PLURALS[kind],
                             sum(item.type == kind for item in live)))
         if folders:
-            entries.append('FOLDERS')
+            entries.append('Folders')
             for folder_id, name in sorted(folders.items(), key=lambda entry: entry[1].lower()):
                 entries.append((('folder', folder_id), 'folder', name, sum(i.folder_id == folder_id for i in live)))
             entries.append((('folder', ''), 'folder', 'No folder', sum(not item.folder_id for item in live)))
         collections = c.collections or []
         if collections:
-            entries.append('COLLECTIONS')
+            entries.append('Collections')
             several = len(c.organizations or {}) > 1
             for collection in sorted(collections, key=lambda entry: str(entry.get('name') or '').lower()):
                 cid = str(collection.get('id') or '')
@@ -1267,15 +1269,16 @@ class VaultWindow(QWidget):
             if isinstance(entry, str):
                 heading = QListWidgetItem(entry)
                 heading.setFlags(Qt.NoItemFlags)
-                heading.setFont(theme.font(7.75, QFont.DemiBold))
+                heading.setFont(theme.font(8.5, QFont.DemiBold))
                 heading.setForeground(dim)
-                if not entry:
-                    heading.setSizeHint(QSize(10, 8))
+                heading.setTextAlignment(Qt.AlignLeft | Qt.AlignBottom)       # nearer its own rows than those above
+                heading.setSizeHint(QSize(10, 32 if entry else 8))
                 self.filters.addItem(heading)
                 continue
             key, glyph, name, count = entry
             item = QListWidgetItem(QIcon(icons.glyph(glyph, dim, 16, 1.8)), f'{name}   {count}')
             item.setData(Qt.UserRole, key)
+            item.setSizeHint(QSize(10, 34))
             self.filters.addItem(item)
         rows = [tuple(self.filters.item(i).data(Qt.UserRole) or ()) for i in range(self.filters.count())]
         self.filters.setCurrentRow(rows.index(chosen) if chosen in rows else 0)
