@@ -425,7 +425,7 @@ class Details(QScrollArea):
     def clear(self) -> None:
         self.item, self.confirmed, self._code = None, '', None
         self._clock.stop()
-        self._build(self._placeholder('Choose an item to see it here.'))
+        self._build(suitesettings.Empty('\ue8d7', 'No item chosen', 'Choose one in the list to see it here.'))
 
     def show_item(self, item, folder: str = '', owner: str = '') -> None:
         if item is None:
@@ -774,18 +774,6 @@ class Details(QScrollArea):
         except totp.TotpError as error:
             self._code.set_value(f'(the key is unusable: {error})')
             self._clock.stop()
-
-    @staticmethod
-    def _placeholder(words: str) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.addStretch(1)
-        icon = QLabel()
-        icon.setPixmap(icons.glyph('key', theme.colors().dim, 40, 1.4))
-        layout.addWidget(icon, 0, Qt.AlignHCenter)
-        layout.addWidget(_label(words, 9.5, role='dim'), 0, Qt.AlignHCenter)
-        layout.addStretch(2)
-        return page
 
     def _build(self, page: QWidget) -> None:
         old = self.takeWidget()
