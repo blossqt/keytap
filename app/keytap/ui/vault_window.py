@@ -45,6 +45,13 @@ DOTS = '•' * 12           # the same length whatever the password's, which a s
 ROW_HEIGHT = 52
 
 
+def _serif(text: str, size: float) -> QLabel:
+    """A name or title, in the suite's Geist Serif."""
+    label = QLabel(text)
+    label.setFont(theme.serif(size))
+    return label
+
+
 def _label(text: str = '', size: float = 9.5, weight=QFont.Normal, role: str = '') -> QLabel:
     label = QLabel(text)
     label.setFont(theme.font(size, weight))
@@ -448,7 +455,7 @@ class Details(QScrollArea):
         names = QVBoxLayout()
         names.setSpacing(2)
         names.addStretch(1)
-        names.addWidget(_Text(item.name, theme.font(15, QFont.DemiBold)))
+        names.addWidget(_Text(item.name, theme.serif(18)))
         state = 'In the trash' if item.deleted else 'Archived' if item.archived else ''
         where = ' · '.join(part for part in (state, '★ Favourite' if item.favorite else '', folder, owner) if part)
         if where:
@@ -802,7 +809,7 @@ class _LockPage(QWidget):
         icon.setPixmap(icons.render_app_icon(64))
         column.addWidget(icon, 0, Qt.AlignHCenter)
         column.addSpacing(6)
-        column.addWidget(_label('Your vault is locked', 15, QFont.DemiBold), 0, Qt.AlignHCenter)
+        column.addWidget(_serif('Your vault is locked', 18), 0, Qt.AlignHCenter)
         self.who = _label('', 9.5, role='dim')
         column.addWidget(self.who, 0, Qt.AlignHCenter)
         column.addSpacing(8)
@@ -888,7 +895,7 @@ class _NoticePage(QWidget):
         icon.setPixmap(icons.render_app_icon(64))
         outer.addWidget(icon, 0, Qt.AlignHCenter)
         outer.addSpacing(8)
-        self.title = _label('', 15, QFont.DemiBold)
+        self.title = _serif('', 18)
         outer.addWidget(self.title, 0, Qt.AlignHCenter)
         self.text = _label('', 9.5, role='dim')
         self.text.setWordWrap(True)
@@ -1047,7 +1054,7 @@ class VaultWindow(QWidget):
         row.addWidget(logo)
         names = QVBoxLayout()
         names.setSpacing(0)
-        names.addWidget(_label('Keytap', 12.5, QFont.DemiBold))
+        names.addWidget(_serif('Keytap', 15))
         self.account = _label('', 8.25, role='dim')
         names.addWidget(self.account)
         row.addLayout(names, 1)

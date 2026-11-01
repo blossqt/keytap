@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
                                QPlainTextEdit, QPushButton, QRadioButton, QSlider, QSpinBox, QStackedWidget,
@@ -21,7 +21,7 @@ from . import icons, theme
 
 def _title(text: str, size: float = 13) -> QLabel:
     label = QLabel(text)
-    label.setFont(theme.font(size, QFont.DemiBold))
+    label.setFont(theme.serif(size + 3))
     return label
 
 

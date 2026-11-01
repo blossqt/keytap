@@ -1415,6 +1415,23 @@ def send(message: str, reply: bool = False) -> str | None:
     return answer
 
 
+_mutex = None
+
+
+def become_the_keytap() -> bool:
+    """Take Keytap's mutex, held for as long as this process lives. Looking for a Keytap's socket
+    alone let two run: started in the same moment (by Hanami, and by Windows for a passkey, seen
+    2026-11-01), each found none listening yet."""
+    global _mutex
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    if _mutex is None:
+        _mutex = kernel32.CreateMutexW(None, False, 'Local\\' + SERVER_NAME) or 0
+    if not _mutex:
+        return True             # no mutex to be had: the socket alone decides, as before
+    return kernel32.WaitForSingleObject(ctypes.c_void_p(_mutex), 0) in (0, 0x80)   # ours, or left by one that died
+
+
 def hand_over(message: str) -> bool:
     """With passkeys set up, the Keytap that runs is one COM started, as the package's "Passkeys"
     app: the only kind Windows calls for a passkey, and it keeps calling the one that runs. So a
@@ -1541,6 +1558,19 @@ def main(argv: list[str] | None = None) -> int:
             traceback.print_exc()
     if '-Embedding' not in argv and hand_over(message):
         return 0
+
+    deadline = time.monotonic() + 20
+    while not become_the_keytap():
+        # Another Keytap started in the same moment and is setting up: once it listens, it gets what
+        # this one was started for (a passkey call is relayed to it), and this one leaves.
+        if send('ping') is not None:
+            if '-Embedding' in argv:
+                return run_relay(app)
+            send(message)
+            return 0
+        if time.monotonic() > deadline:
+            break               # it never came up: be Keytap rather than none
+        time.sleep(0.2)
 
     controller = Controller(startup=quiet, serve_passkeys='-Embedding' in argv)  # noqa: F841 - lives on
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())

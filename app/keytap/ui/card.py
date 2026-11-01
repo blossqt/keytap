@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QFont, QGuiApplication, QPainter
+from PySide6.QtGui import QGuiApplication, QPainter
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .. import win32
@@ -64,7 +64,7 @@ class Card(QWidget):
         text = QVBoxLayout()
         text.setSpacing(0)
         heading = QLabel(title)
-        heading.setFont(theme.font(11, QFont.DemiBold))
+        heading.setFont(theme.serif(13))
         text.addWidget(heading)
         sub = QLabel(detail)
         sub.setProperty('role', 'dim')
