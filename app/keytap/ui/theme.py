@@ -25,8 +25,16 @@ class Colors(suitetheme.Colors):
 
 
 def colors() -> Colors:
-    if suitetheme.glass_on():
-        hover = QColor(255, 255, 255, 24) if is_dark() else QColor(0, 0, 0, 14)
-    else:
-        hover = QColor('#2c2d35') if is_dark() else QColor('#f1f2f6')
-    return Colors(**vars(suitetheme.colors()), hover=hover)
+    """Kept for each mode and glass, as suitetheme's are: copy one before changing it."""
+    key = (is_dark(), suitetheme.glass_on())
+    kept = _kept.get(key)
+    if kept is None:
+        if key[1]:
+            hover = QColor(255, 255, 255, 24) if key[0] else QColor(0, 0, 0, 14)
+        else:
+            hover = QColor('#2c2d35') if key[0] else QColor('#f1f2f6')
+        kept = _kept[key] = Colors(**vars(suitetheme.colors()), hover=hover)
+    return kept
+
+
+_kept: dict = {}

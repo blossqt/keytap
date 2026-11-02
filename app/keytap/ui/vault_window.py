@@ -33,7 +33,7 @@ from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetrics, QFontM
                            QShortcut, QTextDocument, QTextOption)
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QListView, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
-                               QScrollArea, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QTextEdit,
+                               QScrollArea, QSizePolicy, QStyle, QStyledItemDelegate, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
 
 from .. import items as kinds
@@ -172,7 +172,24 @@ class _Text(QTextEdit):
 def avatar(name: str, size: int, on_pink: bool = False, kind: int = LOGIN, quiet: bool = False) -> QPixmap:
     """An item's stand-in for a website icon: a login's initial, or its kind's drawing, in the suite's
     pink. Keytap fetches no icons, so no website learns what is in the vault. On a pink row it turns
-    pale, to stand out; quiet, in a list row not chosen, it is grey, so the chosen row is the pink one."""
+    pale, to stand out; quiet, in a list row not chosen, it is grey, so the chosen row is the pink one.
+    Kept once drawn: the list draws one for every row in sight, and a window being resized draws
+    them all, frame after frame (3 ms of each)."""
+    c = theme.colors()
+    initial = next((ch for ch in name if ch.isalnum()), '?').upper() if kind == LOGIN else ''
+    key = (initial, size, on_pink, kind, quiet, c.chip.rgba(), c.dim.rgba())
+    kept = _avatars.get(key)
+    if kept is None:
+        if len(_avatars) > 400:
+            _avatars.clear()
+        kept = _avatars[key] = _draw_avatar(initial, size, on_pink, kind, quiet)
+    return kept
+
+
+_avatars: dict = {}
+
+
+def _draw_avatar(initial: str, size: int, on_pink: bool, kind: int, quiet: bool) -> QPixmap:
     ratio = 2.0
     pixmap = QPixmap(round(size * ratio), round(size * ratio))
     pixmap.setDevicePixelRatio(ratio)
@@ -193,7 +210,6 @@ def avatar(name: str, size: int, on_pink: bool = False, kind: int = LOGIN, quiet
         return pixmap
     painter.setPen(ink)
     painter.setFont(theme.font(size * 0.36, QFont.DemiBold))
-    initial = next((ch for ch in name if ch.isalnum()), '?').upper()
     painter.drawText(QRectF(0, 0, size, size), Qt.AlignCenter, initial)
     painter.end()
     return pixmap
@@ -1021,7 +1037,7 @@ class VaultWindow(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         outer.addWidget(self._header())
-        self.pages = QStackedWidget()
+        self.pages = theme.Pages()
         outer.addWidget(self.pages, 1)
 
         self.lock_page = _LockPage()

@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-                               QPlainTextEdit, QPushButton, QRadioButton, QSlider, QSpinBox, QStackedWidget,
+                               QPlainTextEdit, QPushButton, QRadioButton, QSlider, QSpinBox,
                                QTabWidget, QVBoxLayout, QWidget)
 
 from .. import generator
@@ -101,7 +101,7 @@ class GeneratorWindow(_Window):
         row.addWidget(copy)
         layout.addWidget(out)
 
-        self.pages = QStackedWidget()
+        self.pages = theme.Pages()
         self.pages.addWidget(self._password_page())
         self.pages.addWidget(self._passphrase_page())
         self.pages.addWidget(self._username_page())
