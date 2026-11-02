@@ -20,13 +20,13 @@ from . import icons, theme
 
 
 def _title(text: str, size: float = 13) -> QLabel:
-    label = QLabel(text)
+    label = theme.Label(text)
     label.setFont(theme.serif(size + 3))
     return label
 
 
 def _dim(text: str) -> QLabel:
-    label = QLabel(text)
+    label = theme.Label(text)
     label.setProperty('role', 'dim')
     label.setWordWrap(True)
     return label
@@ -65,8 +65,8 @@ class GeneratorWindow(_Window):
         super().__init__(controller, 'Generator', 520, 640)
         self.options = generator.settled(controller.settings.generator)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         layout.addWidget(_title('Generator'))
 
         kinds = QHBoxLayout()
@@ -84,7 +84,7 @@ class GeneratorWindow(_Window):
         out = QFrame()
         out.setObjectName('sectionBox')
         row = QHBoxLayout(out)
-        row.setContentsMargins(16, 12, 8, 12)
+        row.setContentsMargins(16, 12, 8, 12)      # right: its buttons' own padding makes 16 in ink
         from .vault_window import _mono
         self.output = QLineEdit()
         self.output.setReadOnly(True)
@@ -275,7 +275,7 @@ class SendsWindow(_Window):
         self.sends: list[dict] = []
         self.current: dict | None = None
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(20, 16, 20, 16)
+        outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(16)
 
         left = QVBoxLayout()
@@ -303,7 +303,7 @@ class SendsWindow(_Window):
         self.hidden = QCheckBox('Hide the text until it is clicked')
         form.addRow('', self.hidden)
         file_row = QHBoxLayout()
-        self.file = QLabel()
+        self.file = theme.Label()
         self.file.setWordWrap(True)
         self.choose = _button('Choose…')
         self.choose.clicked.connect(self._choose_file)
@@ -337,7 +337,7 @@ class SendsWindow(_Window):
         self.link.setReadOnly(True)
         right.addWidget(self.link)
         buttons = QHBoxLayout()
-        self.message = QLabel()
+        self.message = theme.Label()
         self.message.setProperty('role', 'error')
         self.message.setWordWrap(True)
         buttons.addWidget(self.message, 1)
@@ -538,8 +538,8 @@ class HealthWindow(_Window):
     def __init__(self, controller):
         super().__init__(controller, 'Vault health', 640, 600)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         layout.addWidget(_title('Vault health'))
         self.exposed = QCheckBox("Check for leaked passwords with Have I Been Pwned (it gets only the start of each "
                                  "password's hash)")
@@ -655,7 +655,8 @@ class ExportDialog(QDialog):
         self.setWindowIcon(icons.app_icon())
         self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         layout.addWidget(_title('Export vault', 13))
         self.choice = QButtonGroup(self)
         for n, (key, label, _) in enumerate(EXPORTS):
@@ -713,7 +714,8 @@ class ImportDialog(QDialog):
         self.setWindowIcon(icons.app_icon())
         self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         layout.addWidget(_title('Import data', 13))
         layout.addWidget(_dim('From another password manager, or a Bitwarden export, into your vault.'))
         form = QFormLayout()

@@ -46,14 +46,14 @@ ROW_HEIGHT = 52
 
 
 def _serif(text: str, size: float) -> QLabel:
-    """A name or title, in the suite's Geist Serif."""
-    label = QLabel(text)
+    """A name or title, in the suite's Geist Serif (its box its ink: theme.Label)."""
+    label = theme.Label(text)
     label.setFont(theme.serif(size))
     return label
 
 
 def _label(text: str = '', size: float = 9.5, weight=QFont.Normal, role: str = '') -> QLabel:
-    label = QLabel(text)
+    label = theme.Label(text)
     label.setFont(theme.font(size, weight))
     if role:
         label.setProperty('role', role)
@@ -309,7 +309,7 @@ class _ItemDelegate(QStyledItemDelegate):
         painter.setPen(text)
         painter.drawText(QRect(left, rect.top() + 7, width, 19), Qt.AlignVCenter,
                          QFontMetrics(painter.font()).elidedText(item.name, Qt.ElideRight, width))
-        painter.setFont(theme.font(8.5))
+        painter.setFont(theme.font(9))
         painter.setPen(dim)
         detail = item.subtitle
         if not detail and item.type == LOGIN and item.login is not None and item.login.password:
@@ -328,11 +328,13 @@ class _Field(QWidget):
         super().__init__()
         self._value, self._secret, self._shown = value, secret, False
         row = QHBoxLayout(self)
-        row.setContentsMargins(16, 8, 8, 8)
+        # 16 above its name and under its value, as on the other side of the rule between fields
+        # (the value's box keeps 2 px under its letters); right: its buttons' padding makes 16
+        row.setContentsMargins(16, 16, 8, 14)
         row.setSpacing(4)
         text = QVBoxLayout()
-        text.setSpacing(1)
-        text.addWidget(_label(label, 8, role='dim'))
+        text.setSpacing(0)                          # its name and value as one (+ the value's room above = 4)
+        text.addWidget(_label(label, theme.TYPE['caption'], role='dim'))
         self.value = _Text('', _mono(10.5) if mono else None)
         self.value.setToolTip(tip)
         text.addWidget(self.value)
@@ -386,12 +388,12 @@ class _Section(QFrame):
         self.setObjectName('section')
         outer = QVBoxLayout()
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(8)
-        outer.addWidget(_label(title, 8.5, QFont.DemiBold, role='dim'))
+        outer.setSpacing(16)                        # its title to its box, as between the page's items
+        outer.addWidget(_label(title, theme.TYPE['caption'], QFont.DemiBold, role='dim'))
         self.box = QFrame()
         self.box.setObjectName('sectionBox')
         self.rows = QVBoxLayout(self.box)
-        self.rows.setContentsMargins(0, 2, 0, 2)
+        self.rows.setContentsMargins(0, 0, 0, 0)
         self.rows.setSpacing(0)
         outer.addWidget(self.box)
         self.setLayout(outer)
@@ -444,8 +446,8 @@ class Details(QScrollArea):
         self._clock.stop()
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(20)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)                       # even: the empty space split alike
 
         head = QHBoxLayout()
         head.setSpacing(16)
@@ -453,13 +455,13 @@ class Details(QScrollArea):
         picture.setPixmap(avatar(item.name, 48, kind=item.type))
         head.addWidget(picture, 0, Qt.AlignTop)
         names = QVBoxLayout()
-        names.setSpacing(2)
+        names.setSpacing(4)                         # its name and where it is: a pair
         names.addStretch(1)
         names.addWidget(_Text(item.name, theme.serif(17)))
         state = 'In the trash' if item.deleted else 'Archived' if item.archived else ''
         where = ' · '.join(part for part in (state, '★ Favourite' if item.favorite else '', folder, owner) if part)
         if where:
-            folder_line = _label(where, 8.5, role='dim')
+            folder_line = _label(where, 9, role='dim')
             folder_line.setWordWrap(True)
             names.addWidget(folder_line)
         names.addStretch(1)
@@ -671,7 +673,7 @@ class Details(QScrollArea):
         for attachment in found:
             row = QWidget()
             line = QHBoxLayout(row)
-            line.setContentsMargins(16, 8, 8, 8)
+            line.setContentsMargins(16, 8, 8, 8)      # right: its buttons' own padding makes 16 in ink
             line.setSpacing(4)
             line.addWidget(_label(str(attachment.get('fileName') or 'file'), 9.5), 1)
             line.addWidget(_label(str(attachment.get('sizeName') or ''), 8.5, role='dim'))
@@ -708,7 +710,7 @@ class Details(QScrollArea):
         button.clicked.connect(shown)
         wrap = QWidget()
         wrap.setLayout(QVBoxLayout())
-        wrap.layout().setContentsMargins(16, 8, 8, 8)
+        wrap.layout().setContentsMargins(16, 8, 8, 8)      # right: its buttons' own padding makes 16 in ink
         wrap.layout().addWidget(holder)
         part.add(wrap)
         return part
@@ -723,7 +725,7 @@ class Details(QScrollArea):
         words = '\n'.join(f'{label}: {stamp}' for label, stamp in lines if stamp)
         if not words:
             return None
-        label = _label(words, 8.25, role='dim')
+        label = _label(words, 9, role='dim')
         label.setWordWrap(True)
         return label
 
@@ -748,8 +750,8 @@ class Details(QScrollArea):
         box = QFrame()
         box.setObjectName('sectionBox')
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         lock = QLabel()
         lock.setPixmap(icons.glyph('lock', theme.colors().text, 28, 1.6))
         layout.addWidget(lock, 0, Qt.AlignHCenter)
@@ -804,11 +806,11 @@ class _LockPage(QWidget):
         outer = QVBoxLayout(self)
         outer.addStretch(2)
         column = QVBoxLayout()
-        column.setSpacing(12)
+        column.setSpacing(16)
         icon = QLabel()
         icon.setPixmap(icons.render_app_icon(64))
         column.addWidget(icon, 0, Qt.AlignHCenter)
-        column.addSpacing(6)
+        column.addSpacing(16)
         column.addWidget(_serif('Your vault is locked', 17), 0, Qt.AlignHCenter)
         self.who = _label('', 9.5, role='dim')
         column.addWidget(self.who, 0, Qt.AlignHCenter)
@@ -934,7 +936,8 @@ class CollectionsDialog(QDialog):
         self.setWindowModality(Qt.WindowModal)
         self.setMinimumWidth(420)
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
         words = (f'“{item.name}” goes to the organization: it is theirs from then on, and its members '
                  'in those collections can see it.' if moving else f'The collections “{item.name}” is in.')
         note = _label(words, 9.25)
@@ -1068,9 +1071,9 @@ class VaultWindow(QWidget):
         logo.setPixmap(icons.render_app_icon(30))
         row.addWidget(logo)
         names = QVBoxLayout()
-        names.setSpacing(0)
+        names.setSpacing(4)                         # its name and the account: a pair
         names.addWidget(_serif('Keytap', 17))
-        self.account = _label('', 8.25, role='dim')
+        self.account = _label('', 9, role='dim')
         names.addWidget(self.account)
         row.addLayout(names, 1)
 
@@ -1131,7 +1134,7 @@ class VaultWindow(QWidget):
         side.setObjectName('sidebar')
         side.setAttribute(Qt.WA_StyledBackground)
         column = QVBoxLayout(side)
-        column.setContentsMargins(12, 16, 12, 12)
+        column.setContentsMargins(12, 12, 12, 12)
         self.filters = QListWidget()
         self.filters.setObjectName('filters')
         self.filters.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)     # a long folder name is cut short
@@ -1146,7 +1149,7 @@ class VaultWindow(QWidget):
         middle.setObjectName('listPane')
         middle.setAttribute(Qt.WA_StyledBackground)
         column = QVBoxLayout(middle)
-        column.setContentsMargins(12, 12, 12, 8)
+        column.setContentsMargins(12, 12, 12, 12)
         column.setSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search your vault')
@@ -1167,7 +1170,7 @@ class VaultWindow(QWidget):
         self.loading = suitesettings.Shimmer(rows=9, row_height=48)     # the vault on its way, after an unlock
         self.loading.hide()
         column.addWidget(self.loading, 1)
-        self.count = _label('', 8, role='dim')
+        self.count = _label('', 9, role='dim')
         column.addWidget(self.count)
         row.addWidget(middle)
 

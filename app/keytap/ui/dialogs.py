@@ -13,11 +13,11 @@ from .. import __version__, background, hotkeys, matching, sequence, win32
 from ..settings import IDLE_CHOICES
 from ..vault import SERVERS, Bitwarden, Status
 from . import icons, suitesettings, theme
-from .suitesettings import form, framed, label, note, section, switch
+from .suitesettings import SMALL, form, framed, label, note, section, switch
 
 
 def _note(text: str) -> QLabel:
-    label = QLabel(text)
+    label = theme.Label(text)
     label.setWordWrap(True)
     label.setEnabled(False)
     return label
@@ -53,7 +53,7 @@ class SignInDialog(QDialog):
         layout = QVBoxLayout(self)
 
         top = QHBoxLayout()
-        logo = QLabel()
+        logo = theme.Label()
         logo.setPixmap(icons.render_app_icon(48))
         top.addWidget(logo, 0, Qt.AlignTop)
         top.addWidget(suitesettings.titled('Sign in to Bitwarden', 'Keytap types logins from your Bitwarden vault.'), 1)
@@ -75,7 +75,7 @@ class SignInDialog(QDialog):
                 self.server.setCurrentIndex(2)
                 self.url.setText(current)
         self.server.currentIndexChanged.connect(self._server_changed)
-        form.addRow('Server:', self.server)
+        form.addRow('Server', self.server)
         form.addRow('', self.url)
         layout.addLayout(form)
         self._server_changed()
@@ -83,11 +83,11 @@ class SignInDialog(QDialog):
         layout.addWidget(_note(
             'A Bitwarden window opens for your email, master password and any two-step login '
             'code. When it says you are logged in, close it and unlock Keytap.'))
-        self.state = QLabel()
+        self.state = theme.Label()
         self.state.setWordWrap(True)
         layout.addWidget(self.state)
 
-        other = QLabel('<a href="#">Use an API key or single sign-on instead</a>')
+        other = theme.Label('<a href="#">Use an API key or single sign-on instead</a>')
         other.linkActivated.connect(self._tool_console)
         layout.addWidget(other)
 
@@ -252,7 +252,7 @@ class SettingsDialog(QDialog):
         box.addLayout(rows)
         problems = controller.hotkey_problems
         if problems:
-            box.addWidget(label('\n'.join(problems.values()), 8.5, role='error', wrap=True))
+            box.addWidget(label('\n'.join(problems.values()), SMALL, role='error', wrap=True))
         layout.addWidget(box_frame)
 
         box_frame, box = section('What gets typed')
@@ -552,12 +552,12 @@ class WelcomeDialog(QDialog):
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
         top = QHBoxLayout()
-        logo = QLabel()
+        logo = theme.Label()
         logo.setPixmap(icons.render_app_icon(48))
         top.addWidget(logo, 0, Qt.AlignTop)
         top.addWidget(suitesettings.titled('Keytap is running', 'It runs in the tray, by the clock.'), 1)
         layout.addLayout(top)
-        layout.addSpacing(6)
+        layout.addSpacing(16)
         type_key = hotkeys_now.get('type') or 'its hotkey'
         pick_key = hotkeys_now.get('pick') or 'the other hotkey'
         steps = [
@@ -570,7 +570,7 @@ class WelcomeDialog(QDialog):
             '<b>Or click into a login box</b> - in most programs Keytap lists your logins '
             'under it, as Bitwarden does in a browser.',
         ]
-        text = QLabel('<br><br>'.join(steps))
+        text = theme.Label('<br><br>'.join(steps))
         text.setWordWrap(True)
         text.setTextFormat(Qt.RichText)
         layout.addWidget(text)

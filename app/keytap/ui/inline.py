@@ -163,7 +163,7 @@ class InlineMenu(QWidget):
             p.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
 
         p.drawPixmap(int(card.left() + 12), int(card.top() + 8), icons.render_app_icon(16))
-        p.setFont(theme.font(8.5, QFont.DemiBold))
+        p.setFont(theme.font(9, QFont.DemiBold))
         p.setPen(c.dim)
         what = 'password' if self.field and self.field.kind == 'password' else 'login'
         p.drawText(QRectF(card.left() + 34, card.top() + 4, card.width() - 70, 24), Qt.AlignVCenter,
@@ -200,12 +200,12 @@ class InlineMenu(QWidget):
             p.drawText(QRectF(left, rect.top() + (4 if detail else 0), width, 18 if detail else ROW),
                        Qt.AlignVCenter, QFontMetrics(p.font()).elidedText(title, Qt.ElideRight, width))
             if detail:
-                p.setFont(theme.font(8.25))
+                p.setFont(theme.font(9))
                 p.setPen(dim)
                 p.drawText(QRectF(left, rect.top() + 21, width, 16), Qt.AlignVCenter,
                            QFontMetrics(p.font()).elidedText(detail, Qt.ElideRight, width))
 
-        p.setFont(theme.font(8))
+        p.setFont(theme.font(9))
         p.setPen(c.text if self._hover == 'mute' else c.dim)
         p.drawText(self._mute_rect(), Qt.AlignVCenter, f"Don't pop up in {self.program}")
         p.end()

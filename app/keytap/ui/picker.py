@@ -70,7 +70,7 @@ class _Delegate(QStyledItemDelegate):
         painter.setPen(text)
         name = QFontMetrics(painter.font()).elidedText(login.name, Qt.ElideRight, width)
         painter.drawText(QRect(left, rect.top() + 5, width, 19), Qt.AlignVCenter, name)
-        painter.setFont(theme.font(8.5))
+        painter.setFont(theme.font(9))
         painter.setPen(dim)
         detail = login.username or ('no username' if login.password else 'no username or password')
         detail = QFontMetrics(painter.font()).elidedText(detail, Qt.ElideRight, width)
@@ -112,7 +112,7 @@ class Picker(Card):
         self.list.customContextMenuRequested.connect(self._menu)
         self.body.addWidget(self.list)
 
-        self.empty = QLabel()
+        self.empty = theme.Label()
         self.empty.setProperty('role', 'dim')
         self.empty.setAlignment(Qt.AlignCenter)
         self.empty.hide()
@@ -136,10 +136,10 @@ class Picker(Card):
             QShortcut(QKeySequence('Alt+W'), self,
                       activated=lambda: not self.whole_site.isHidden() and self.whole_site.toggle())
 
-        hint = QLabel('Enter types it all  ·  Ctrl+U username  ·  Ctrl+P password  ·  Ctrl+T code\n'
+        hint = theme.Label('Enter types it all  ·  Ctrl+U username  ·  Ctrl+P password  ·  Ctrl+T code\n'
                       'Right-click a login to copy from it instead')
         hint.setProperty('role', 'dim')
-        hint.setFont(theme.font(8))
+        hint.setFont(theme.font(9))
         hint.setWordWrap(True)
         self.body.addWidget(hint)
         self.new_button = QPushButton(f'New login for {target_label}  (Ctrl+N)' if target_label else 'New login  (Ctrl+N)')

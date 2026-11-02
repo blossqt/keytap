@@ -6,6 +6,7 @@ from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton
 
 from .. import win32
+from . import theme
 from .card import Card
 
 
@@ -26,11 +27,11 @@ class UnlockCard(Card):
         self.password.installEventFilter(self)
         self.body.addWidget(self.password)
 
-        self.caps = QLabel('Caps Lock is on')
+        self.caps = theme.Label('Caps Lock is on')
         self.caps.setProperty('role', 'error')
         self.caps.setVisible(win32.caps_lock_on())
         self.body.addWidget(self.caps)
-        self.error = QLabel()
+        self.error = theme.Label()
         self.error.setProperty('role', 'error')
         self.error.setWordWrap(True)
         self.error.hide()

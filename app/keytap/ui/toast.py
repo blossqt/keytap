@@ -105,7 +105,7 @@ class Toast(QWidget):
         metrics = QFontMetrics(p.font())
         p.drawText(QRectF(left, card.top() + 10, width, 22), Qt.AlignVCenter,
                    metrics.elidedText(self.title, Qt.ElideRight, int(width)))
-        p.setFont(theme.font(8.5))
+        p.setFont(theme.font(9))
         p.setPen(c.dim)
         metrics = QFontMetrics(p.font())
         detail_w = width + 30 if not self.action else width - 96
@@ -117,7 +117,7 @@ class Toast(QWidget):
             p.setPen(Qt.NoPen)
             p.setBrush(c.selected if self._hover == 'action' else c.chip)
             p.drawRoundedRect(self._action_rect, 7, 7)
-            p.setFont(theme.font(8.5, QFont.DemiBold))
+            p.setFont(theme.font(9, QFont.DemiBold))
             p.setPen(c.selected_text if self._hover == 'action' else c.text)
             p.drawText(self._action_rect, Qt.AlignCenter, self.action[0])
 
