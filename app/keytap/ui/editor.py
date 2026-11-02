@@ -87,7 +87,7 @@ class _Section(QFrame):
         self.setObjectName('section')
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(6)
+        outer.setSpacing(8)
         heading = QLabel(title)
         heading.setFont(theme.font(8.5, QFont.DemiBold))
         heading.setProperty('role', 'dim')
@@ -95,7 +95,7 @@ class _Section(QFrame):
         self.box = QFrame()
         self.box.setObjectName('sectionBox')
         self.layout_ = QVBoxLayout(self.box)
-        self.layout_.setContentsMargins(14, 12, 14, 12)
+        self.layout_.setContentsMargins(16, 12, 16, 12)
         self.layout_.setSpacing(8)
         self.form = QFormLayout()
         self.form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -121,7 +121,7 @@ class _UriRow(QWidget):
         super().__init__()
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(8)
         self.uri = QLineEdit(uri)
         self.uri.setPlaceholderText('https://example.com, or app://program.exe')
         row.addWidget(self.uri, 1)
@@ -146,7 +146,7 @@ class _FieldRow(QWidget):
         self.kind = field.get('type') if field.get('type') in items.FIELD_KINDS else items.TEXT
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(8)
         self.name = QLineEdit(_text(field.get('name')))
         self.name.setPlaceholderText(f'{items.FIELD_KINDS[self.kind]} field name')
         row.addWidget(self.name, 2)
@@ -224,7 +224,7 @@ class ItemEditor(QDialog):
         self.page.addStretch(1)
 
         foot = QHBoxLayout()
-        foot.setContentsMargins(24, 10, 24, 16)
+        foot.setContentsMargins(24, 12, 24, 16)
         self.message = QLabel()
         self.message.setProperty('role', 'error')
         self.message.setWordWrap(True)
@@ -337,7 +337,7 @@ class ItemEditor(QDialog):
 
         sites = _Section('Websites and programs')
         self.uris = QVBoxLayout()
-        self.uris.setSpacing(6)
+        self.uris.setSpacing(8)
         sites.add(self.uris)
         for entry in login.get('uris') or []:
             if isinstance(entry, dict):
@@ -451,7 +451,7 @@ class ItemEditor(QDialog):
     def _fields(self) -> None:
         part = _Section('Custom fields')
         self.field_rows = QVBoxLayout()
-        self.field_rows.setSpacing(6)
+        self.field_rows.setSpacing(8)
         part.add(self.field_rows)
         self._links = items.LINKS.get(self.kind, {})
         for field in self.raw.get('fields') or []:

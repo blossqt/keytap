@@ -56,8 +56,7 @@ class SignInDialog(QDialog):
         logo = QLabel()
         logo.setPixmap(icons.render_app_icon(48))
         top.addWidget(logo, 0, Qt.AlignTop)
-        top.addWidget(QLabel('<b style="font-size:13pt">Sign in to Bitwarden</b><br>'
-                             'Keytap types logins from your Bitwarden vault.'), 1)
+        top.addWidget(suitesettings.titled('Sign in to Bitwarden', 'Keytap types logins from your Bitwarden vault.'), 1)
         layout.addLayout(top)
         layout.addSpacing(4)
 
@@ -166,8 +165,8 @@ class SignInDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
-    PAGES = [('\ue80f', 'General'), ('\ue765', 'Typing'), ('\ue71d', 'Programs'), ('\ue72e', 'Locking'),
-             ('\ue8d7', 'Passkeys')]
+    PAGES = [('gear', 'General'), ('keyboard', 'Typing'), ('grid', 'Programs'), ('lock', 'Locking'),
+             ('key', 'Passkeys')]
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -556,8 +555,7 @@ class WelcomeDialog(QDialog):
         logo = QLabel()
         logo.setPixmap(icons.render_app_icon(48))
         top.addWidget(logo, 0, Qt.AlignTop)
-        top.addWidget(QLabel('<b style="font-size:14pt">Keytap is running</b><br>'
-                             'It lives in the tray, by the clock.'), 1)
+        top.addWidget(suitesettings.titled('Keytap is running', 'It lives in the tray, by the clock.'), 1)
         layout.addLayout(top)
         layout.addSpacing(6)
         type_key = hotkeys_now.get('type') or 'its hotkey'

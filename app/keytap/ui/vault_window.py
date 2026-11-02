@@ -328,7 +328,7 @@ class _Field(QWidget):
         super().__init__()
         self._value, self._secret, self._shown = value, secret, False
         row = QHBoxLayout(self)
-        row.setContentsMargins(14, 8, 8, 8)
+        row.setContentsMargins(16, 8, 8, 8)
         row.setSpacing(4)
         text = QVBoxLayout()
         text.setSpacing(1)
@@ -386,7 +386,7 @@ class _Section(QFrame):
         self.setObjectName('section')
         outer = QVBoxLayout()
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(6)
+        outer.setSpacing(8)
         outer.addWidget(_label(title, 8.5, QFont.DemiBold, role='dim'))
         self.box = QFrame()
         self.box.setObjectName('sectionBox')
@@ -432,7 +432,7 @@ class Details(QScrollArea):
     def clear(self) -> None:
         self.item, self.confirmed, self._code = None, '', None
         self._clock.stop()
-        self._build(suitesettings.Empty('\ue8d7', 'No item chosen', 'Choose one in the list to see it here.'))
+        self._build(suitesettings.Empty('key', 'No item chosen', 'Choose one in the list to see it here.'))
 
     def show_item(self, item, folder: str = '', owner: str = '') -> None:
         if item is None:
@@ -445,17 +445,17 @@ class Details(QScrollArea):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(18)
+        layout.setSpacing(20)
 
         head = QHBoxLayout()
-        head.setSpacing(14)
+        head.setSpacing(16)
         picture = QLabel()
         picture.setPixmap(avatar(item.name, 48, kind=item.type))
         head.addWidget(picture, 0, Qt.AlignTop)
         names = QVBoxLayout()
         names.setSpacing(2)
         names.addStretch(1)
-        names.addWidget(_Text(item.name, theme.serif(18)))
+        names.addWidget(_Text(item.name, theme.serif(17)))
         state = 'In the trash' if item.deleted else 'Archived' if item.archived else ''
         where = ' · '.join(part for part in (state, '★ Favourite' if item.favorite else '', folder, owner) if part)
         if where:
@@ -496,7 +496,7 @@ class Details(QScrollArea):
 
     def _actions(self, item) -> QHBoxLayout:
         row = QHBoxLayout()
-        row.setSpacing(6)
+        row.setSpacing(8)
         act = self.owner.act
 
         def button(text: str, glyph: str, name: str, primary: bool = False, tip: str = '') -> QPushButton:
@@ -671,7 +671,7 @@ class Details(QScrollArea):
         for attachment in found:
             row = QWidget()
             line = QHBoxLayout(row)
-            line.setContentsMargins(14, 6, 8, 6)
+            line.setContentsMargins(16, 8, 8, 8)
             line.setSpacing(4)
             line.addWidget(_label(str(attachment.get('fileName') or 'file'), 9.5), 1)
             line.addWidget(_label(str(attachment.get('sizeName') or ''), 8.5, role='dim'))
@@ -708,7 +708,7 @@ class Details(QScrollArea):
         button.clicked.connect(shown)
         wrap = QWidget()
         wrap.setLayout(QVBoxLayout())
-        wrap.layout().setContentsMargins(14, 8, 8, 8)
+        wrap.layout().setContentsMargins(16, 8, 8, 8)
         wrap.layout().addWidget(holder)
         part.add(wrap)
         return part
@@ -749,7 +749,7 @@ class Details(QScrollArea):
         box.setObjectName('sectionBox')
         layout = QVBoxLayout(box)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
         lock = QLabel()
         lock.setPixmap(icons.glyph('lock', theme.colors().text, 28, 1.6))
         layout.addWidget(lock, 0, Qt.AlignHCenter)
@@ -804,12 +804,12 @@ class _LockPage(QWidget):
         outer = QVBoxLayout(self)
         outer.addStretch(2)
         column = QVBoxLayout()
-        column.setSpacing(10)
+        column.setSpacing(12)
         icon = QLabel()
         icon.setPixmap(icons.render_app_icon(64))
         column.addWidget(icon, 0, Qt.AlignHCenter)
         column.addSpacing(6)
-        column.addWidget(_serif('Your vault is locked', 18), 0, Qt.AlignHCenter)
+        column.addWidget(_serif('Your vault is locked', 17), 0, Qt.AlignHCenter)
         self.who = _label('', 9.5, role='dim')
         column.addWidget(self.who, 0, Qt.AlignHCenter)
         column.addSpacing(8)
@@ -895,7 +895,7 @@ class _NoticePage(QWidget):
         icon.setPixmap(icons.render_app_icon(64))
         outer.addWidget(icon, 0, Qt.AlignHCenter)
         outer.addSpacing(8)
-        self.title = _serif('', 18)
+        self.title = _serif('', 17)
         outer.addWidget(self.title, 0, Qt.AlignHCenter)
         self.text = _label('', 9.5, role='dim')
         self.text.setWordWrap(True)
@@ -934,7 +934,7 @@ class CollectionsDialog(QDialog):
         self.setWindowModality(Qt.WindowModal)
         self.setMinimumWidth(420)
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
         words = (f'“{item.name}” goes to the organization: it is theirs from then on, and its members '
                  'in those collections can see it.' if moving else f'The collections “{item.name}” is in.')
         note = _label(words, 9.25)
@@ -1022,7 +1022,22 @@ class VaultWindow(QWidget):
             QShortcut(QKeySequence(keys), self).activated.connect(action)
         QShortcut(QKeySequence.Delete, self.list, context=Qt.WidgetShortcut).activated.connect(
             lambda: self._on_current('delete_forever' if self._filter()[0] == 'trash' else 'delete'))
+        suitesettings.shortcut_sheet(self, 'Keytap', self._shortcut_groups)
         self.refresh()
+
+    def _shortcut_groups(self) -> list:
+        """Keytap's keyboard shortcuts, for its sheet (Ctrl+/): the hotkeys as they are set now."""
+        from .picker import ACTIONS
+        keys = self.controller.settings.hotkeys
+        anywhere = [(k, what) for k, what in ((keys.get('type'), 'Type the login for the window in front'),
+                                              (keys.get('pick'), 'Choose a login to type')) if k]
+        return ([('Anywhere', anywhere)] if anywhere else []) + [
+            ('Choosing a login', [('Enter' if k == 'Return' else k, what) for a, what, k in ACTIONS if a] +
+             [('Ctrl+N', 'A new login')]),
+            ('In the vault', [('Ctrl+F', 'Search'), ('Ctrl+U', 'Copy the username'), ('Ctrl+P', 'Copy the password'),
+                              ('Ctrl+T', 'Copy the verification code'), ('Ctrl+N', 'A new item'),
+                              ('Ctrl+E', 'Edit the item'), ('Del', 'Delete the item'), ('Ctrl+R', 'Sync'),
+                              ('Ctrl+L', 'Lock'), ('Ctrl+/', 'These shortcuts')])]
 
     # ------------------------------------------------------------------ building
 
@@ -1047,14 +1062,14 @@ class VaultWindow(QWidget):
         bar.setObjectName('header')
         bar.setAttribute(Qt.WA_StyledBackground)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(18, 10, 12, 10)
-        row.setSpacing(10)
+        row.setContentsMargins(20, 12, 12, 12)
+        row.setSpacing(12)
         logo = QLabel()
         logo.setPixmap(icons.render_app_icon(30))
         row.addWidget(logo)
         names = QVBoxLayout()
         names.setSpacing(0)
-        names.addWidget(_serif('Keytap', 15))
+        names.addWidget(_serif('Keytap', 17))
         self.account = _label('', 8.25, role='dim')
         names.addWidget(self.account)
         row.addLayout(names, 1)
@@ -1116,7 +1131,7 @@ class VaultWindow(QWidget):
         side.setObjectName('sidebar')
         side.setAttribute(Qt.WA_StyledBackground)
         column = QVBoxLayout(side)
-        column.setContentsMargins(10, 14, 10, 10)
+        column.setContentsMargins(12, 16, 12, 12)
         self.filters = QListWidget()
         self.filters.setObjectName('filters')
         self.filters.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)     # a long folder name is cut short
@@ -1131,7 +1146,7 @@ class VaultWindow(QWidget):
         middle.setObjectName('listPane')
         middle.setAttribute(Qt.WA_StyledBackground)
         column = QVBoxLayout(middle)
-        column.setContentsMargins(10, 12, 10, 6)
+        column.setContentsMargins(12, 12, 12, 8)
         column.setSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search your vault')
@@ -1149,6 +1164,9 @@ class VaultWindow(QWidget):
         self.list.currentItemChanged.connect(lambda *_: self._show_current())
         self.list.doubleClicked.connect(lambda _: self._on_current('edit'))
         column.addWidget(self.list, 1)
+        self.loading = suitesettings.Shimmer(rows=9, row_height=48)     # the vault on its way, after an unlock
+        self.loading.hide()
+        column.addWidget(self.loading, 1)
         self.count = _label('', 8, role='dim')
         column.addWidget(self.count)
         row.addWidget(middle)
@@ -1289,6 +1307,9 @@ class VaultWindow(QWidget):
         shown = sorted((item for item in source if keep(item) and item.matches(words)),
                        key=lambda item: (item.name.lower(), item.subtitle.lower()))
         current = self._want or (self.details.item.id if self.details.item is not None else '')
+        waiting = c.items is None and kind not in ('trash', 'archive')
+        self.loading.setVisible(waiting)
+        self.list.setVisible(not waiting)
         self.list.blockSignals(True)
         self.list.show_items(shown, current)
         self.list.blockSignals(False)

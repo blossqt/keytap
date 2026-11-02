@@ -52,12 +52,12 @@ class Card(QWidget):
         theme.restyle(self, theme.card_style)
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(SHADOW + PAD, SHADOW + PAD - 2, SHADOW + PAD, SHADOW + PAD)
-        self.body.setSpacing(10)
+        self.body.setSpacing(12)
         self._drag: QPoint | None = None
 
     def header(self, title: str, detail: str = '') -> QLabel:
         row = QHBoxLayout()
-        row.setSpacing(10)
+        row.setSpacing(12)
         logo = QLabel()
         logo.setPixmap(icons.app_icon().pixmap(28, 28))
         row.addWidget(logo, 0, Qt.AlignTop)

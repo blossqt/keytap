@@ -185,7 +185,7 @@ class InlineMenu(QWidget):
                              icons.glyph('lock' if kind == 'unlock' else 'search', text, 16, 1.8))
                 left += 26
             if tag:
-                p.setFont(theme.font(7.5, QFont.DemiBold))
+                p.setFont(theme.font(8, QFont.DemiBold))
                 width = QFontMetrics(p.font()).horizontalAdvance(tag) + 12
                 chip = QRectF(right - width, rect.center().y() - 9, width, 18)
                 p.setPen(Qt.NoPen)

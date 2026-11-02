@@ -49,6 +49,7 @@ class _Window(QWidget):
         self.setWindowTitle(f'{title} - Keytap')
         self.setWindowIcon(icons.app_icon())
         theme.frost(self)
+        theme.closes_on_escape(self)
         theme.restyle(self, lambda: theme.card_style() + theme.panel_css('QFrame#sectionBox', 10) +
                       ' QListWidget::item { padding: 5px 6px; }')
         self.resize(width, height)
@@ -64,7 +65,7 @@ class GeneratorWindow(_Window):
         super().__init__(controller, 'Generator', 520, 640)
         self.options = generator.settled(controller.settings.generator)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
         layout.addWidget(_title('Generator'))
 
@@ -83,7 +84,7 @@ class GeneratorWindow(_Window):
         out = QFrame()
         out.setObjectName('sectionBox')
         row = QHBoxLayout(out)
-        row.setContentsMargins(14, 10, 8, 10)
+        row.setContentsMargins(16, 12, 8, 12)
         from .vault_window import _mono
         self.output = QLineEdit()
         self.output.setReadOnly(True)
@@ -274,7 +275,7 @@ class SendsWindow(_Window):
         self.sends: list[dict] = []
         self.current: dict | None = None
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(18, 16, 18, 16)
+        outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(16)
 
         left = QVBoxLayout()
@@ -537,8 +538,8 @@ class HealthWindow(_Window):
     def __init__(self, controller):
         super().__init__(controller, 'Vault health', 640, 600)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 18, 22, 18)
-        layout.setSpacing(10)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
         layout.addWidget(_title('Vault health'))
         self.exposed = QCheckBox("Check for leaked passwords with Have I Been Pwned (it gets only the start of each "
                                  "password's hash)")
@@ -654,8 +655,8 @@ class ExportDialog(QDialog):
         self.setWindowIcon(icons.app_icon())
         self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.addWidget(_title('Export vault', 12))
+        layout.setSpacing(12)
+        layout.addWidget(_title('Export vault', 13))
         self.choice = QButtonGroup(self)
         for n, (key, label, _) in enumerate(EXPORTS):
             radio = QRadioButton(label)
@@ -712,8 +713,8 @@ class ImportDialog(QDialog):
         self.setWindowIcon(icons.app_icon())
         self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.addWidget(_title('Import data', 12))
+        layout.setSpacing(12)
+        layout.addWidget(_title('Import data', 13))
         layout.addWidget(_dim('From another password manager, or a Bitwarden export, into your vault.'))
         form = QFormLayout()
         self.form_ = QComboBox()
