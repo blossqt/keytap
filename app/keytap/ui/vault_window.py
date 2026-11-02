@@ -469,7 +469,7 @@ class Details(QScrollArea):
         picture.setPixmap(avatar(item.name, 48, kind=item.type))
         head.addWidget(picture, 0, Qt.AlignTop)
         names = QVBoxLayout()
-        names.setSpacing(4)                         # its name and where it is: a pair
+        names.setSpacing(16)                        # a serif title and the line under it: 16, as everywhere
         names.addStretch(1)
         names.addWidget(_Text(item.name, theme.serif(17)))
         state = 'In the trash' if item.deleted else 'Archived' if item.archived else ''
@@ -824,11 +824,10 @@ class _LockPage(QWidget):
         icon = QLabel()
         icon.setPixmap(icons.render_app_icon(64))
         column.addWidget(icon, 0, Qt.AlignHCenter)
-        column.addSpacing(16)
         column.addWidget(_serif('Your vault is locked', 17), 0, Qt.AlignHCenter)
         self.who = _label('', 9.5, role='dim')
+        self.who.hide()                             # until there is an account to name
         column.addWidget(self.who, 0, Qt.AlignHCenter)
-        column.addSpacing(8)
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setPlaceholderText('Master password')
@@ -860,6 +859,7 @@ class _LockPage(QWidget):
     def reset(self, email: str, hello: bool = False) -> None:
         self.succeeded = False
         self.who.setText(f'Signed in as {email}' if email else '')
+        self.who.setVisible(bool(email))            # an empty line would leave a double gap
         self.password.clear()
         self.password.setEnabled(True)
         self.button.setEnabled(True)
@@ -906,11 +906,11 @@ class _NoticePage(QWidget):
     def __init__(self):
         super().__init__()
         outer = QVBoxLayout(self)
+        outer.setSpacing(16)                        # icon, title, text and button evenly apart
         outer.addStretch(2)
         icon = QLabel()
         icon.setPixmap(icons.render_app_icon(64))
         outer.addWidget(icon, 0, Qt.AlignHCenter)
-        outer.addSpacing(8)
         self.title = _serif('', 17)
         outer.addWidget(self.title, 0, Qt.AlignHCenter)
         self.text = _label('', 9.5, role='dim')
@@ -918,7 +918,6 @@ class _NoticePage(QWidget):
         self.text.setAlignment(Qt.AlignCenter)
         self.text.setFixedWidth(380)
         outer.addWidget(self.text, 0, Qt.AlignHCenter)
-        outer.addSpacing(8)
         self.button = QPushButton()
         self.button.setProperty('role', 'primary')
         self.button.setCursor(Qt.PointingHandCursor)
@@ -930,6 +929,8 @@ class _NoticePage(QWidget):
     def say(self, title: str, text: str, button: str = '', action=None) -> None:
         self.title.setText(title)
         self.text.setText(text)
+        # A centred item gets no height for its width from the layout: give it its wrapped height
+        self.text.setFixedHeight(self.text.heightForWidth(self.text.width()))
         self.button.setText(button)
         self.button.setVisible(bool(button))
         self._action = action
@@ -1085,7 +1086,7 @@ class VaultWindow(QWidget):
         logo.setPixmap(icons.render_app_icon(30))
         row.addWidget(logo)
         names = QVBoxLayout()
-        names.setSpacing(4)                         # its name and the account: a pair
+        names.setSpacing(16)                        # a serif title and the line under it: 16, as everywhere
         names.addWidget(_serif('Keytap', 17))
         self.account = _label('', 9, role='dim')
         names.addWidget(self.account)
