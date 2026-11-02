@@ -1459,7 +1459,7 @@ def run_relay(app) -> int:
     alive = QTimer(interval=5000)
     alive.timeout.connect(lambda: app.quit() if not relay.busy and send('ping') is None else None)
     alive.start()
-    return app.exec()
+    return theme.leave(app.exec())
 
 
 def self_test(argv: list[str]) -> int:
@@ -1574,4 +1574,4 @@ def main(argv: list[str] | None = None) -> int:
 
     controller = Controller(startup=quiet, serve_passkeys='-Embedding' in argv)  # noqa: F841 - lives on
     app.styleHints().colorSchemeChanged.connect(lambda *_: icons.clear_cache())
-    return app.exec()
+    return theme.leave(app.exec())
