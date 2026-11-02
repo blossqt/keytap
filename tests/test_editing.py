@@ -172,7 +172,7 @@ class EditingTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', texts(self.window.details))
         self.select('Steam')
         shown = texts(self.window.details)
-        self.assertIn('✓ Yes', shown)
+        self.assertIn('\nYes\n', shown)
         self.assertIn('Linked to Username', shown)
         self.assertNotIn('2468', shown)
         self.assertIn(f'Created: {items.when("2026-01-02T03:04:05.000Z")}', shown, "in this PC's time")

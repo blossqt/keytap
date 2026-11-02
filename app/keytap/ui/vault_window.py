@@ -664,7 +664,7 @@ class Details(QScrollArea):
             value = '' if field.get('value') is None else str(field['value'])
             kind = field.get('type')
             if kind == kinds.BOOLEAN:
-                extra.add(_Field(name, '✓ Yes' if value.lower() == 'true' else '✗ No'))
+                extra.add(_Field(name, 'Yes' if value.lower() == 'true' else 'No'))
             elif kind == kinds.LINKED:
                 extra.add(_Field(name, f'Linked to {links.get(field.get("linkedId"), "nothing")}'))
             else:
