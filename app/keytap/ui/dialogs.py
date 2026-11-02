@@ -555,7 +555,7 @@ class WelcomeDialog(QDialog):
         logo = QLabel()
         logo.setPixmap(icons.render_app_icon(48))
         top.addWidget(logo, 0, Qt.AlignTop)
-        top.addWidget(suitesettings.titled('Keytap is running', 'It lives in the tray, by the clock.'), 1)
+        top.addWidget(suitesettings.titled('Keytap is running', 'It runs in the tray, by the clock.'), 1)
         layout.addLayout(top)
         layout.addSpacing(6)
         type_key = hotkeys_now.get('type') or 'its hotkey'
@@ -567,8 +567,8 @@ class WelcomeDialog(QDialog):
             'program, then presses Enter. If it is not sure which, it asks.',
             f'<b>3.</b> In the list, tick <i>Always use</i> and it will not ask again for that '
             f'program. <b>{pick_key}</b> always lets you choose.',
-            '<b>Or just click into a login box</b> - in most programs Keytap lists your logins '
-            'right under it, as Bitwarden does in a browser.',
+            '<b>Or click into a login box</b> - in most programs Keytap lists your logins '
+            'under it, as Bitwarden does in a browser.',
         ]
         text = QLabel('<br><br>'.join(steps))
         text.setWordWrap(True)

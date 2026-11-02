@@ -1,8 +1,8 @@
 # Keytap
 
-Press a key in any Windows program and Keytap types your Bitwarden login
-there: game launchers, desktop apps, remote desktops, anything with a
-username box. Part of the same suite as Homework Hub, Grabbit and Dropshift.
+Keytap fills in Bitwarden logins in Windows programs when you press a hotkey:
+game launchers, desktop apps and remote desktops. Part of the same suite as
+Homework Hub, Grabbit and Dropshift.
 
 Keytap reaches your vault through Bitwarden's own command-line tool, which
 comes with it, and does what Bitwarden's apps do: it makes and changes logins,
