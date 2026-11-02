@@ -29,7 +29,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import (QAbstractListModel, QByteArray, QEvent, QMimeData, QModelIndex, QRect, QRectF, QSize, Qt,
                             QTimer, QUrl, Signal)
-from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPixmap,
+from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetrics, QFontMetricsF, QIcon, QKeySequence, QPainter, QPixmap,
                            QShortcut, QTextDocument, QTextOption)
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QListView, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
@@ -89,9 +89,11 @@ class _Text(QTextEdit):
     Lines may also break after the dots and slashes of addresses (Windows' own rules keep
     "instagram.com" in one piece), and what is copied from it is kept private."""
 
-    def __init__(self, text: str = '', font: QFont | None = None, margins: tuple[int, ...] = (0, 0, 0, 0)):
+    def __init__(self, text: str = '', font: QFont | None = None, margins: tuple[int, ...] = (0, 0, 0, 0),
+                 trim: bool = False):
         super().__init__()
         self._heights: dict[int, int] = {}      # its height at each width it has been asked about
+        self._margins, self._trim = tuple(margins), trim  # trim: no room above its first line's letters
         self.setObjectName('text')
         self.setReadOnly(True)
         self.setFrameShape(QFrame.NoFrame)
@@ -115,8 +117,19 @@ class _Text(QTextEdit):
 
     def setText(self, text: str) -> None:       # always plain: nothing in a vault is markup
         self.setPlainText(text.translate(_BREAK_AFTER))
+        self._fit()
         self._heights.clear()
         self.updateGeometry()
+
+    def _fit(self) -> None:
+        """With trim, its top is its first line's letters (as theme.Label's is), through a negative
+        viewport margin: a field's name sits a steady 4 above its value, whatever the letters."""
+        left, top, right, bottom = self._margins
+        if self._trim:
+            m = QFontMetricsF(self.font())
+            first = (self.toPlainText().split('\n')[0][:80].strip() or 'x')
+            top -= max(0, round(m.ascent() + m.tightBoundingRect(first).top()) - 1)   # a pixel kept: the edge's shading
+        self.setViewportMargins(left, top, right, bottom)
 
     def text(self) -> str:
         return self.toPlainText().replace(_BREAK, '')
@@ -135,17 +148,18 @@ class _Text(QTextEdit):
             layout.setDefaultFont(self.font())
             layout.setTextWidth(max(1, width - margins.left() - margins.right()))
             height = math.ceil(layout.size().height()) + margins.top() + margins.bottom()
-            self._heights[width] = max(height, QFontMetrics(self.font()).height())
+            self._heights[width] = max(height, QFontMetrics(self.font()).height() + margins.top())
         return self._heights[width]
 
     def changeEvent(self, event):
         if event.type() == QEvent.FontChange:
+            self._fit()
             self._heights.clear()
             self.updateGeometry()
         super().changeEvent(event)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(0, QFontMetrics(self.font()).height())
+        return QSize(0, QFontMetrics(self.font()).height() + self.viewportMargins().top())
 
     def sizeHint(self) -> QSize:
         width = max(self.width(), 1)
@@ -333,9 +347,9 @@ class _Field(QWidget):
         row.setContentsMargins(16, 16, 8, 14)
         row.setSpacing(4)
         text = QVBoxLayout()
-        text.setSpacing(0)                          # its name and value as one (+ the value's room above = 4)
+        text.setSpacing(4)                          # its name and value: a pair (the value trims its room)
         text.addWidget(_label(label, theme.TYPE['caption'], role='dim'))
-        self.value = _Text('', _mono(10.5) if mono else None)
+        self.value = _Text('', _mono(10.5) if mono else None, trim=True)
         self.value.setToolTip(tip)
         text.addWidget(self.value)
         row.addLayout(text, 1)

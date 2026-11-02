@@ -150,7 +150,8 @@ class VaultWindowTest(unittest.TestCase):
             self.assertIn('pw-five-' + 'x' * 60, shown, 'the whole password, wrapped')
             for text in page.findChildren(QTextEdit):      # each row is as tall as its wrapped text
                 self.assertGreaterEqual(text.parentWidget().height(), text.height())
-                self.assertLessEqual(text.document().size().height(), text.height() + 1)
+                # (less the room above its first line's letters, which a field's value leaves out)
+                self.assertLessEqual(text.document().size().height() + text.viewportMargins().top(), text.height() + 1)
             self.assertLessEqual(self.window.sidebar.width() + self.window.middle.width(), 740 - 300)
             # Copying a selection by hand keeps it out of the clipboard history too.
             name = page.findChildren(QTextEdit)[0]
