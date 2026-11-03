@@ -13,7 +13,7 @@ from .. import __version__, background, hotkeys, matching, sequence, win32
 from ..settings import IDLE_CHOICES
 from ..vault import SERVERS, Bitwarden, Status
 from . import icons, suitesettings, theme
-from .suitesettings import SMALL, form, framed, label, note, section, switch
+from .suitesettings import SMALL, form, framed, group, label, note, section, switch
 
 
 def _note(text: str) -> QLabel:
@@ -229,8 +229,7 @@ class SettingsDialog(QDialog):
         holder, self._startup = switch('Start Keytap when I sign in to Windows', '', win32.starts_with_windows())
         box.addWidget(holder)
         holder, self._tray = switch('Show Keytap in the tray',
-                                    'In Hanami\'s cherry blossom while Hanami runs, otherwise an icon of its own. '
-                                    'Turned off, open Keytap again - from Start or Hanami - to come back here.',
+                                    'Turned off, open Keytap from Start or Hanami to get back here.',
                                     self.settings.tray_shown)
         box.addWidget(holder)
         layout.addWidget(box_frame)
@@ -289,6 +288,9 @@ class SettingsDialog(QDialog):
                                       'their own screens cannot show it; the hotkey still works in them.',
                                       self.settings.inline)
         box.addWidget(holder)
+        # Named by its own title, so it needs no line saying what it lists; with nothing in it, it
+        # isn't there at all (the picker's "Don't pop up in" is where programs join it).
+        muted_group, muted_box = group('Not in these programs')
         self._muted = framed(QListWidget())
         self._muted.setMaximumHeight(80)
         for program in self.settings.inline_muted:
@@ -299,12 +301,11 @@ class SettingsDialog(QDialog):
         row = QHBoxLayout()
         row.addWidget(self._muted, 1)
         row.addWidget(unmute, 0, Qt.AlignTop)
-        box.addLayout(row)
+        muted_box.addLayout(row)
+        box.addWidget(muted_group)
         if not self._muted.count():                 # (disabled: nothing of it is saved)
             self._muted.setEnabled(False)
-            self._muted.hide()
-            unmute.hide()
-            box.addWidget(note("Programs you choose “Don't pop up in” for are listed here."))
+            muted_group.hide()
         layout.addWidget(box_frame)
 
         box_frame, box = section('Remembered programs')

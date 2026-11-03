@@ -464,7 +464,7 @@ class Details(QScrollArea):
     def clear(self) -> None:
         self.item, self.confirmed, self._code = None, '', None
         self._clock.stop()
-        self._build(suitesettings.Empty('key', 'No item chosen', 'Choose one in the list to see it here.'))
+        self._build(suitesettings.Empty('key', 'No item chosen'))
 
     def show_item(self, item, folder: str = '', owner: str = '') -> None:
         if item is None:
