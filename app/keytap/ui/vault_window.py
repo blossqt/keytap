@@ -446,6 +446,7 @@ class Details(QScrollArea):
     def __init__(self, owner):
         super().__init__()
         self.owner = owner            # the VaultWindow: copying, acting on items, hotkeys
+        self.setObjectName('details')
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1078,12 +1079,16 @@ class VaultWindow(QWidget):
     def _style(self) -> str:
         c = theme.colors()
         border = c.border.name(QColor.HexArgb)
+        # The sidebar and the list on solid ground, as the suite's panels: on the clear glass their
+        # words were over whatever lay behind the window (2026-11-13).
+        ground = theme.css(theme.panel_fill())
         return theme.card_style() + theme.panel_css('QFrame#sectionBox', 10) + f"""
             QWidget#vault {{ background: {theme.css(c.card)}; }}
             QWidget#header {{ background: {theme.css(c.card)}; border-bottom: 1px solid {border}; }}
-            QWidget#sidebar {{ background: {theme.css(c.tile)}; border-right: 1px solid {border}; }}
-            QWidget#listPane {{ border-right: 1px solid {border}; }}
+            QWidget#sidebar {{ background: {ground}; border-right: 1px solid {border}; }}
+            QWidget#listPane {{ background: {ground}; border-right: 1px solid {border}; }}
             QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
+            QScrollArea#details {{ background: {ground}; border: none; }}
             QFrame#rule {{ background: {border}; border: none; margin: 0 12px; }}
             QListWidget#filters {{ background: transparent; border: none; outline: none; }}
             QListView#items {{ background: transparent; border: none; outline: none; }}
