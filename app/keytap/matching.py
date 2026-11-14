@@ -292,6 +292,26 @@ def _sites(login) -> set[str]:
     return found
 
 
+def search_site(word: str) -> str:
+    """The website a search word names ('google.com' for 'gmail.com' too, through _also), or ''
+    for a word that is not a website's name."""
+    word = word.strip().lower()
+    if '.' not in word or '@' in word or word.startswith('.') or word.endswith('.'):
+        return ''
+    return site_of(word)
+
+
+def site_word(word: str, name: str) -> bool:
+    """Whether a login's name has a website's own name in it: 'Gmail' for gmail.com."""
+    named = _site_name(word)
+    return len(named) >= 3 and _word_in(named, name.lower())
+
+
+def saved_for(login, site: str) -> bool:
+    """Whether a login is saved for this website or a name it also goes by."""
+    return bool(_sites(login) & _also(site))
+
+
 def _is_web(uri: str) -> bool:
     return uri.lower().startswith(('http://', 'https://')) or ('.' in uri and '://' not in uri)
 

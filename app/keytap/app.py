@@ -258,9 +258,9 @@ class Controller(QObject):
             self._choose(action, window)
 
     def _choose(self, action: str, window) -> None:
-        # In a login box on a web page (an app's built-in browser, say), the page's website decides.
-        field = self.fields.current(window)
-        page = field.page if field is not None and matching.page_site(field.page) else ''
+        # On a web page (a browser's, or an app's built-in one), the page's website decides.
+        page = self.fields.page(window)
+        page = page if matching.page_site(page) else ''
         matches = matching.find(window, self.logins, self.settings.links, page, self._just(window, page))
         if action == 'type':
             login = matching.sure_choice(matches)
@@ -417,8 +417,7 @@ class Controller(QObject):
             self.card.bring_back()
             return None
         if detail is None:
-            field = self.fields.current(window) if window else None
-            detail = (f'to fill {matching.describe(window, field.page if field else "")}' if window
+            detail = (f'to fill {matching.describe(window, self.fields.page(window))}' if window
                       else self.status.email)
         card = UnlockCard('Unlock Keytap', detail, hello=self.hello_on())
         card.submitted.connect(lambda password: self._unlock(card, password))

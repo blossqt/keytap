@@ -263,6 +263,59 @@ def matching_window():
     return WindowInfo(hwnd=1, title='Steam', class_name='X', pid=1, exe_path='C:\\Steam\\steam.exe')
 
 
+class PickerSearchTest(unittest.TestCase):
+    # Searching "gmail.com" on Google's sign-in listed every login with a gmail.com username.
+    MAIL = [
+        Login('g', 'Google', 'me@gmail.com', 'pw', uris=('https://accounts.google.com',)),
+        Login('y', 'YouTube', 'me@gmail.com', 'pw', uris=('https://www.youtube.com',)),
+        Login('m', 'Gmail', 'me@gmail.com', 'pw'),
+        Login('t', 'account.tracker.gg', 'me@gmail.com', 'pw', uris=('https://account.tracker.gg',)),
+        Login('u', 'Ubisoft', 'me@gmail.com', 'pw', uris=('https://account.ubisoft.com',)),
+    ]
+
+    def ids(self, query: str) -> list[str]:
+        from keytap.ui.picker import Picker
+        picker = Picker(self.MAIL, [], 'msedge.exe')
+        picker.search.setText(query)
+        return sorted(picker.list.item(i).data(0x0100)[0].id for i in range(picker.list.count()))
+
+    def test_a_website_finds_its_logins(self):
+        self.assertEqual(self.ids('gmail.com'), ['g', 'm', 'y'], "Google's names, and a login named Gmail")
+        self.assertEqual(self.ids('tracker.gg'), ['t'])
+        self.assertEqual(self.ids('ubisoft.com'), ['u'])
+
+    def test_a_username_is_still_found(self):
+        self.assertEqual(self.ids('me@gmail.com'), ['g', 'm', 't', 'u', 'y'])
+        self.assertEqual(self.ids('gmail'), ['g', 'm', 't', 'u', 'y'], 'a word, not a website')
+
+
+class HotkeyPageTest(unittest.TestCase):
+    # A browser's boxes are not watched (Bitwarden's extension has them), so the hotkey's picker
+    # went by Edge's window title, "Gmail and 2 more pages", instead of the page.
+    def test_the_noted_page_decides(self):
+        from PySide6.QtCore import QCoreApplication
+
+        from keytap.focus import FieldWatcher
+        from keytap.win32 import WindowInfo
+        edge = WindowInfo(hwnd=7, title='Gmail and 2 more pages - Microsoft Edge', class_name='Chrome_WidgetWin_1',
+                          pid=1, exe_path='C:\\Edge\\msedge.exe')
+        watcher = FieldWatcher(lambda window: False)
+        watcher._held_address = lambda automation, window, held: (None, 'https://accounts.google.com/v3/signin')
+        done = []
+        watcher.hold(edge, lambda: done.append(watcher.page(edge)))
+        for _ in range(200):
+            QCoreApplication.processEvents()
+            if done:
+                break
+            import time
+            time.sleep(0.01)
+        if watcher.failed:
+            self.skipTest(f'no UI Automation here: {watcher.failed}')
+        self.assertEqual(done, ['https://accounts.google.com/v3/signin'])
+        other = WindowInfo(hwnd=8, title='x', class_name='X', pid=1, exe_path='C:\\x.exe')
+        self.assertEqual(watcher.page(other), '', 'only for the window it was noted in')
+
+
 
 class ToastTest(unittest.TestCase):
     def test_a_fifth_toast_doesnt_hang_keytap(self):

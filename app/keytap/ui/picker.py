@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QSho
 from PySide6.QtWidgets import (QCheckBox, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton,
                                QStyle, QStyledItemDelegate)
 
-from ..matching import HINT, JUST, LINKED, PAGE, SITE, URI, main_site
+from ..matching import HINT, JUST, LINKED, PAGE, SITE, URI, main_site, saved_for, search_site, site_word
 from . import icons, theme
 from .card import Card
 
@@ -166,9 +166,15 @@ class Picker(Card):
             ids = {login.id for login in suggested}
             return suggested + [login for login in self._logins if login.id not in ids]
 
+        # A website's name ("gmail.com") finds the logins saved for that website, not every
+        # username at gmail.com.
+        sites = {word: search_site(word) for word in words}
+
         def hit(login) -> bool:
-            haystack = ' '.join((login.name, login.username, *login.uris)).lower()
-            return all(word in haystack for word in words)
+            named = ' '.join((login.name, *login.uris)).lower()
+            haystack = f'{named} {login.username.lower()}'
+            return all(saved_for(login, sites[word]) or word in named or site_word(word, login.name)
+                       if sites[word] else word in haystack for word in words)
         suggested = [m.login for m in self._matches if hit(m.login)]
         ids = {login.id for login in suggested}
         return suggested + [login for login in self._logins if login.id not in ids and hit(login)]

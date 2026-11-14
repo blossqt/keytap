@@ -141,8 +141,13 @@ def page_address(automation, element) -> str:
         pages = automation.CreateAndCondition(
             automation.CreatePropertyCondition(UIA_CONTROL_TYPE_PROPERTY, UIA_DOCUMENT),
             automation.CreatePropertyCondition(UIA_FRAMEWORK_ID_PROPERTY, 'Chrome'))
-        # The nearest page around the box: for a box in a frame, the frame's own page.
-        page = automation.CreateTreeWalker(pages).GetParentElement(element)
+        # The nearest page around the box: for a box in a frame, the frame's own page. The page
+        # itself, if it has the keyboard (a browser's page before anything on it is clicked).
+        if (element.CurrentControlType == UIA_DOCUMENT
+                and element.CurrentFrameworkId == 'Chrome'):
+            page = element
+        else:
+            page = automation.CreateTreeWalker(pages).GetParentElement(element)
         if not page or page.CurrentProcessId != element.CurrentProcessId:     # comtypes: NULL is falsy
             return ''
         from comtypes.gen import UIAutomationClient as uia
@@ -198,6 +203,7 @@ class FieldWatcher(QObject):
         self._answered = -1
         self._waiting: dict[int, Callable] = {}    # hold and give-back requests, by number
         self._numbers = itertools.count(1)
+        self._held_page: tuple[int, str] | None = None     # (hwnd, address) noted by hold()
         self.failed = ''
 
     # ------------------------------------------------------------------ on and off
@@ -243,7 +249,20 @@ class FieldWatcher(QObject):
     def hold(self, window, then: Callable[[], None]) -> None:
         """Note which box in this window has the keyboard, before a card of Keytap's takes it,
         so give_back can return it to that same box. then() runs once it is noted."""
-        self._request('hold', window, lambda _: then(), wait_ms=700, fallback=None)
+        def noted(answer) -> None:
+            self._held_page = answer if answer else None
+            then()
+        self._held_page = None
+        self._request('hold', window, noted, wait_ms=1000, fallback=None)
+
+    def page(self, window) -> str:
+        """The address of the web page whose box has the keyboard in this window, or ''. The watched
+        box's, else the one hold() noted - in a browser, which is not watched."""
+        field = self.current(window)
+        if field is not None and field.page:
+            return field.page
+        held = self._held_page
+        return held[1] if held and held[0] == window.hwnd else ''
 
     def give_back(self, window, then: Callable[[bool], None]) -> None:
         """Hand the keyboard back to the box hold() noted in this window (the window is already in
@@ -327,8 +346,8 @@ class FieldWatcher(QObject):
                 requests.append(self._requests.get())
             for kind, number, window, *payload in (r for r in requests if r[0] != 'look'):     # in order
                 if kind == 'hold':
-                    held = self._hold(automation, window)
-                    self._relay.answered.emit(number, None)
+                    held, address = self._held_address(automation, window, self._hold(automation, window))
+                    self._relay.answered.emit(number, (window.hwnd, address))
                 elif kind == 'give':
                     self._relay.answered.emit(number, self._give(automation, window, held))
                 else:
@@ -357,6 +376,19 @@ class FieldWatcher(QObject):
         except Exception:  # noqa: BLE001 - the program went away, or would not answer
             pass
         return None
+
+    @staticmethod
+    def _held_address(automation, window, held) -> tuple:
+        """The noted box, and the address of the web page it is on ('' for none). A browser builds
+        its tree only once first asked, so its first answer can be the window rather than the
+        page: then it is asked once more."""
+        for attempt in range(2):
+            address = page_address(automation, held[1]) if held is not None else ''
+            if address or window.class_name not in _CHROMIUM_CLASSES or attempt:
+                return held, address
+            time.sleep(0.25)
+            held = FieldWatcher._hold(automation, window) or held
+        return held, ''
 
     @staticmethod
     def _fill(automation, window, held, username, password, send, keys) -> filling.Filled:
