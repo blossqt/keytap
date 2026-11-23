@@ -519,7 +519,7 @@ class Details(QScrollArea):
 
         if item.type == LOGIN and not item.deleted and not item.archived:
             keys = self.owner.hotkeys()
-            hint = _label(f'Press {keys.get("type", "")} in a program to type this login there.', 8.25, role='dim')
+            hint = _label(f'{keys.get("type", "")} types this login into the program in front.', 8.25, role='dim')
             hint.setWordWrap(True)
             layout.addWidget(hint)
         layout.addStretch(1)
@@ -1202,6 +1202,8 @@ class VaultWindow(QWidget):
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.list.currentItemChanged.connect(lambda *_: self._show_current())
         self.list.doubleClicked.connect(lambda _: self._on_current('edit'))
+        self.list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._item_menu)
         column.addWidget(self.list, 1)
         self.loading = suitesettings.Shimmer(rows=9, row_height=48)     # the vault on its way, after an unlock
         self.loading.hide()
@@ -1539,6 +1541,43 @@ class VaultWindow(QWidget):
     def _delete_folder(self, folder_id: str, name: str) -> None:
         if self._ask(f'Delete the folder “{name}”?', 'What is in it stays in your vault, in no folder.', 'Delete'):
             self.controller.delete_folder(folder_id, self._done('delete the folder'))
+
+    def item_menu_actions(self) -> list[tuple[str, object]]:
+        """What a right-click on the chosen item offers, as Bitwarden's list does: its parts to copy,
+        then Edit and Favourite - those only once Bitwarden has the whole item (not while unlocking)."""
+        item, login = self.details.item, self.details.login
+        if item is None:
+            return []
+        actions = []
+        if login is not None and not item.deleted:
+            for part, name, there in (('username', 'Copy username', login.username),
+                                      ('password', 'Copy password', login.password),
+                                      ('totp', 'Copy verification code', login.totp)):
+                if there:
+                    actions.append((name, lambda p=part: self._copy_part(p)))
+        if not item.deleted and not item.partial:
+            if actions:
+                actions.append(('', None))
+            actions.append(('Edit', lambda: self._on_current('edit')))
+            actions.append(('Unfavourite' if item.favorite else 'Favourite', lambda: self.act('favorite', item)))
+        return actions
+
+    def _item_menu(self, where) -> None:
+        index = self.list.indexAt(where)
+        if not index.isValid():
+            return
+        self.list.setCurrentRow(index.row())
+        actions = self.item_menu_actions()
+        if not actions:
+            return
+        menu = QMenu(self)
+        for name, then in actions:
+            if then is None:
+                menu.addSeparator()
+            else:
+                menu.addAction(name, then)
+        menu.exec(self.list.viewport().mapToGlobal(where))
+        menu.deleteLater()
 
     def _copy_part(self, part: str) -> None:
         item = self.details.item

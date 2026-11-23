@@ -8,15 +8,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-                               QPlainTextEdit, QPushButton, QRadioButton, QSlider, QSpinBox,
-                               QTabWidget, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QPushButton, QRadioButton, QSizePolicy, QSlider, QSpinBox,
+                               QVBoxLayout, QWidget)
 
 from .. import generator
 from .editor import Secret
-from . import icons, theme
+from . import icons, suitesettings, theme
 
 
 def _title(text: str, size: float = 13) -> QLabel:
@@ -71,13 +71,16 @@ class GeneratorWindow(_Window):
 
         kinds = QHBoxLayout()
         self.kind = QButtonGroup(self)
+        choices = []
         for n, (key, label) in enumerate((('password', 'Password'), ('passphrase', 'Passphrase'),
                                           ('username', 'Username'))):
-            choice = QRadioButton(label)
+            choice = QPushButton(label)
+            choice.setCheckable(True)
             choice.setProperty('key', key)
             choice.setChecked(self.options['kind'] == key)
             self.kind.addButton(choice, n)
-            kinds.addWidget(choice)
+            choices.append(choice)
+        kinds.addWidget(suitesettings.Segmented(choices))      # a choice of a few, as the suite's settings have
         kinds.addStretch(1)
         layout.addLayout(kinds)
 
@@ -93,7 +96,7 @@ class GeneratorWindow(_Window):
         self.output.setStyleSheet('background: transparent; border: none;')
         row.addWidget(self.output, 1)
         again = _button('', 'refresh')
-        again.setToolTip('Make another')
+        again.setToolTip('Regenerate')
         again.clicked.connect(self.make)
         row.addWidget(again)
         copy = _button('Copy', 'copy', primary=True)
@@ -101,13 +104,24 @@ class GeneratorWindow(_Window):
         row.addWidget(copy)
         layout.addWidget(out)
 
+        options = QFrame()                          # its choices in a box of their own, as the result is
+        options.setObjectName('sectionBox')
+        inside = QVBoxLayout(options)
+        inside.setContentsMargins(16, 16, 16, 16)
         self.pages = theme.Pages()
         self.pages.addWidget(self._password_page())
         self.pages.addWidget(self._passphrase_page())
         self.pages.addWidget(self._username_page())
-        layout.addWidget(self.pages)
+        inside.addWidget(self.pages)
+        layout.addWidget(options)
 
-        layout.addWidget(_dim('Made since Keytap unlocked (double-click one to copy it):'))
+        about = QVBoxLayout()
+        about.setSpacing(4)
+        heading = theme.Label('History')
+        heading.setFont(theme.font(9, QFont.DemiBold))
+        about.addWidget(heading)
+        about.addWidget(_dim('Generated since Keytap was unlocked. Double-click an entry to copy it.'))
+        layout.addLayout(about)
         self.history = QListWidget()
         from .vault_window import _mono as mono
         self.history.setFont(mono(9))
@@ -134,10 +148,18 @@ class GeneratorWindow(_Window):
         form.addRow(label, spin)
         return spin
 
-    def _password_page(self) -> QWidget:
-        page = QWidget()
+    @staticmethod
+    def _form(page: QWidget) -> QFormLayout:
         form = QFormLayout(page)
         form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(8)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        return form
+
+    def _password_page(self) -> QWidget:
+        page = QWidget()
+        form = self._form(page)
         length = QHBoxLayout()
         slider = QSlider(Qt.Horizontal)
         slider.setRange(*generator.LIMITS['length'])
@@ -155,43 +177,41 @@ class GeneratorWindow(_Window):
         self._check(form, 'a-z', 'lower')
         self._check(form, '0-9', 'digits')
         self._check(form, generator.SPECIAL, 'special')
-        self._spin(form, 'Fewest numbers', 'min_digits')
-        self._spin(form, 'Fewest special characters', 'min_special')
+        self._spin(form, 'Minimum numbers', 'min_digits')
+        self._spin(form, 'Minimum special characters', 'min_special')
         self._check(form, 'Avoid characters that look alike (I, l, O, 0, 1)', 'avoid_ambiguous')
         return page
 
     def _passphrase_page(self) -> QWidget:
         page = QWidget()
-        form = QFormLayout(page)
-        form.setContentsMargins(0, 0, 0, 0)
+        form = self._form(page)
         self._spin(form, 'Words', 'words')
         separator = QLineEdit(self.options['separator'])
         separator.setMaxLength(1)
         separator.setFixedWidth(60)
         separator.textChanged.connect(lambda text: self._set('separator', text))
-        form.addRow('Between words', separator)
+        form.addRow('Word separator', separator)
         self._check(form, 'Capitalise', 'capitalize')
         self._check(form, 'Include a number', 'number')
         return page
 
     def _username_page(self) -> QWidget:
         page = QWidget()
-        form = QFormLayout(page)
-        form.setContentsMargins(0, 0, 0, 0)
+        form = self._form(page)
         kind = QComboBox()
-        for key, label in (('word', 'A random word'), ('plus', 'Your email, plus-addressed'),
-                           ('catchall', 'An address at your own domain (catch-all)')):
+        for key, label in (('word', 'Random word'), ('plus', 'Plus-addressed email'),
+                           ('catchall', 'Catch-all email')):
             kind.addItem(label, key)
         kind.setCurrentIndex(max(0, kind.findData(self.options['username'])))
-        form.addRow('Kind', kind)
+        form.addRow('Type', kind)
         email = QLineEdit(self.options['email'])
         email.setPlaceholderText('you@example.com')
         email.textChanged.connect(lambda text: self._set('email', text.strip()))
-        form.addRow('Your email', email)
+        form.addRow('Email', email)
         domain = QLineEdit(self.options['domain'])
         domain.setPlaceholderText('example.com')
         domain.textChanged.connect(lambda text: self._set('domain', text.strip()))
-        form.addRow('Your domain', domain)
+        form.addRow('Domain', domain)
         capitalize = QCheckBox('Capitalise')
         capitalize.setChecked(self.options['username_capitalize'])
         capitalize.toggled.connect(lambda on: self._set('username_capitalize', on))
@@ -226,13 +246,22 @@ class GeneratorWindow(_Window):
         self.make()
 
     def _show_page(self) -> None:
-        self.pages.setCurrentIndex(('password', 'passphrase', 'username').index(self.options['kind']))
+        index = ('password', 'passphrase', 'username').index(self.options['kind'])
+        self.pages.setCurrentIndex(index)
+        # The box as tall as the page in it: a stack asks every page, so the shorter ones sat in the
+        # password page's height with empty room under them.
+        for n in range(self.pages.count()):
+            wanted = QSizePolicy.Preferred if n == index else QSizePolicy.Ignored
+            self.pages.widget(n).setSizePolicy(QSizePolicy.Preferred, wanted)
+        self.pages.updateGeometry()
 
     def make(self) -> None:
         made = generator.generate(self.options)
         self.output.setText(made)
+        self.output.setCursorPosition(0)        # a long passphrase shown from its start
+        self.output.setToolTip(made)
         if not made:
-            self.output.setPlaceholderText('Give your email (or domain) first')
+            self.output.setPlaceholderText('Requires an email address or domain')
             return
         self.controller.remember_generated(made)
         self._fill_history()
@@ -289,7 +318,7 @@ class SendsWindow(_Window):
         new_file.clicked.connect(lambda: self._new(1))
         left.addWidget(new_text)
         left.addWidget(new_file)
-        self.state = _dim('Asking Bitwarden for your Sends…')
+        self.state = _dim('Loading Sends…')
         left.addWidget(self.state)
         outer.addLayout(left, 2)
 
@@ -312,24 +341,24 @@ class SendsWindow(_Window):
         form.addRow('File', file_row)
         self._file_row = file_row
         self.deletes = QComboBox()
-        form.addRow('Deleted after', self.deletes)
+        form.addRow('Deletion date', self.deletes)
         self.expires = QComboBox()
-        form.addRow('Link stops working', self.expires)
+        form.addRow('Expires', self.expires)
         self.views = QSpinBox()
         self.views.setRange(0, 1_000_000)
         self.views.setSpecialValueText('No limit')
-        form.addRow('Most views', self.views)
-        self.password = Secret(mono=False, placeholder='Optional: needed to open the link')
+        form.addRow('Maximum views', self.views)
+        self.password = Secret(mono=False, placeholder='Optional, required to open the link')
         form.addRow('Password', self.password)
-        self.remove_password = _button('Remove its password')
+        self.remove_password = _button('Remove password')
         self.remove_password.clicked.connect(self._remove_password)
         form.addRow('', self.remove_password)
-        self.hide_email = QCheckBox('Hide my email address from whoever opens it')
+        self.hide_email = QCheckBox('Hide my email address from viewers')
         form.addRow('', self.hide_email)
         self.notes = QPlainTextEdit()
         self.notes.setFixedHeight(60)
         form.addRow('Private notes', self.notes)
-        self.disabled = QCheckBox('Turned off: no one can open it')
+        self.disabled = QCheckBox('Deactivate this Send')
         form.addRow('', self.disabled)
         self._form = form
         right.addLayout(form)
@@ -351,19 +380,27 @@ class SendsWindow(_Window):
             buttons.addWidget(button)
         right.addLayout(buttons)
         right.addStretch(1)
-        self.form_box = QWidget()
+        right.setContentsMargins(16, 16, 16, 16)
+        self.form_box = QFrame()                    # the Send chosen, in a box of its own
+        self.form_box.setObjectName('sectionBox')
         self.form_box.setLayout(right)
-        outer.addWidget(self.form_box, 3)
+        # Nothing chosen: an empty place saying so, rather than the whole form greyed out
+        self.nothing = suitesettings.Empty('send', 'No Send selected',
+                                           'Choose a Send on the left, or make a new text or file Send.')
+        self.right = theme.Pages()
+        self.right.addWidget(self.nothing)
+        self.right.addWidget(self.form_box)
+        outer.addWidget(self.right, 3)
         self.form_box.setEnabled(False)
         self._load()
 
     def _load(self, choose: str = '') -> None:
         def loaded(sends, error):
             if error is not None:
-                self.state.setText(f'Bitwarden did not list your Sends: {error}')
+                self.state.setText(f'Sends could not be loaded: {error}')
                 return
             self.sends = sends
-            self.state.setText(f'{len(sends)} Send{"s" if len(sends) != 1 else ""}' if sends else 'No Sends yet.')
+            self.state.setText(f'{len(sends)} Send{"s" if len(sends) != 1 else ""}' if sends else 'No Sends')
             self.list.blockSignals(True)
             self.list.clear()
             for send in sends:
@@ -395,6 +432,7 @@ class SendsWindow(_Window):
     def _show(self, send: dict) -> None:
         self.current = send
         self.form_box.setEnabled(True)
+        self.right.setCurrentWidget(self.form_box)
         existing = bool(send.get('id'))
         is_file = send.get('type') == 1
         self.name.setText(str(send.get('name') or ''))
@@ -523,6 +561,7 @@ class SendsWindow(_Window):
         if not choose:
             self.current = None
             self.form_box.setEnabled(False)
+            self.right.setCurrentWidget(self.nothing)
         self._load(choose)
 
 
@@ -541,26 +580,48 @@ class HealthWindow(_Window):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
         layout.addWidget(_title('Vault health'))
-        self.exposed = QCheckBox("Check for leaked passwords with Have I Been Pwned (it gets only the start of each "
-                                 "password's hash)")
+        self.exposed = QCheckBox('Check for exposed passwords with Have I Been Pwned (only the start of each '
+                                 'password’s hash is sent)')
         self.exposed.setChecked(True)
         layout.addWidget(self.exposed)
         row = QHBoxLayout()
-        self.go = _button('Check my vault', 'shield', primary=True)
+        self.go = _button('Check vault', 'shield', primary=True)
         self.go.clicked.connect(self.check)
         row.addWidget(self.go)
         self.state = _dim('')
         row.addWidget(self.state, 1)
         layout.addLayout(row)
-        self.tabs = QTabWidget()
+        # The four reports as a choice of a few over a box of their own (a tab widget's pane drew
+        # solid white on the glass).
+        self.which = QButtonGroup(self)
+        self.titles: dict[str, str] = {}
+        self.report_buttons: dict[str, QPushButton] = {}
+        self.pages = theme.Pages()
         self.lists = {}
-        for key, title in (('exposed', 'Exposed'), ('reused', 'Reused'), ('weak', 'Weak'),
-                           ('unsecured', 'Not https')):
+        for n, (key, title) in enumerate((('exposed', 'Exposed'), ('reused', 'Reused'), ('weak', 'Weak'),
+                                          ('unsecured', 'Not https'))):
+            button = QPushButton(title)
+            button.setCheckable(True)
+            button.setChecked(n == 0)
+            self.which.addButton(button, n)
+            self.report_buttons[key] = button
+            self.titles[key] = title
             shown = QListWidget()
+            shown.setFrameShape(QFrame.NoFrame)
             shown.itemDoubleClicked.connect(self._open)
             self.lists[key] = shown
-            self.tabs.addTab(shown, title)
-        layout.addWidget(self.tabs, 1)
+            box = QFrame()
+            box.setObjectName('sectionBox')
+            inside = QVBoxLayout(box)
+            inside.setContentsMargins(8, 8, 8, 8)
+            inside.addWidget(shown)
+            self.pages.addWidget(box)
+        self.which.idClicked.connect(self.pages.setCurrentIndex)
+        reports = QHBoxLayout()
+        reports.addWidget(suitesettings.Segmented(list(self.report_buttons.values())))
+        reports.addStretch(1)
+        layout.addLayout(reports)
+        layout.addWidget(self.pages, 1)
         layout.addWidget(_dim('Double-click a login to open it in Keytap.'))
         self._unsecured()
 
@@ -616,8 +677,7 @@ class HealthWindow(_Window):
             entry = QListWidgetItem(f'{name}{"  ·  " + who if who else ""}\n{why}')
             entry.setData(Qt.UserRole, item_id)
             shown.addItem(entry)
-        index = list(self.lists).index(key)
-        self.tabs.setTabText(index, f'{self.tabs.tabText(index).split(" (")[0]} ({len(rows)})')
+        self.report_buttons[key].setText(f'{self.titles[key]} ({len(rows)})')
 
     def _open(self, entry) -> None:
         item_id = entry.data(Qt.UserRole)

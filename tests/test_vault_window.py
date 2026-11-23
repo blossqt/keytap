@@ -97,6 +97,26 @@ class VaultWindowTest(unittest.TestCase):
         self.window._copy_part('password')
         self.assertEqual(self.copied[-1], ('password', 'pw-three'))
 
+    def test_a_right_click_offers_what_bitwarden_does(self):
+        self.select('GitHub')
+        actions = dict((name, then) for name, then in self.window.item_menu_actions() if name)
+        self.assertEqual(list(actions), ['Copy username', 'Copy password', 'Copy verification code'],
+                         'the sample is still unlocking: no Edit or Favourite yet')
+        actions['Copy username']()
+        self.assertEqual(self.copied[-1], ('username', 'blossqt'))
+        self.window.details.item.partial = False
+        names = [name for name, _ in self.window.item_menu_actions() if name]
+        self.assertEqual(names[-2:], ['Edit', 'Favourite'])
+        self.select('store.steampowered.com')
+        self.window.details.item.partial = False
+        names = [name for name, _ in self.window.item_menu_actions() if name]
+        self.assertNotIn('Copy verification code', names, 'only what the login has')
+        self.assertIn('Unfavourite', names)
+        self.select('Bank')                     # asks for the master password first, as its buttons do
+        dict(self.window.item_menu_actions())['Copy password']()
+        self.assertEqual(self.confirmations[-1][0], '4')
+        self.assertNotEqual(self.copied[-1][1], 'pw-four')
+
     def test_verification_code_counts_down(self):
         self.select('GitHub')
         code = self.window.details._code.value.text()

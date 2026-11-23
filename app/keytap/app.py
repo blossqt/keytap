@@ -921,7 +921,7 @@ class Controller(QObject):
             if cancelled is not None:
                 cancelled()
             return None
-        card = UnlockCard("Confirm it's you", detail or f'“{login.name}” asks for your master password',
+        card = UnlockCard('Verify your identity', detail or f'“{login.name}” asks for your master password',
                           button='Confirm')
         if cancelled is not None:
             card.closed.connect(lambda: None if card.succeeded else cancelled())
@@ -1153,7 +1153,7 @@ class Controller(QObject):
         self._copied = text
         self._clipboard.start()
         if not quiet:
-            self.toasts.show(f'Copied the {label}', f'It clears from the clipboard in {CLIPBOARD_SECONDS} seconds.')
+            self.toasts.show(f'{label[:1].upper()}{label[1:]} copied', f'Clears from the clipboard in {CLIPBOARD_SECONDS} seconds.')
 
     def _clear_clipboard(self) -> None:
         if self._copied and QGuiApplication.clipboard().text() == self._copied:

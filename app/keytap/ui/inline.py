@@ -50,13 +50,13 @@ class InlineMenu(QWidget):
         "Don't pop up in" mutes."""
         self.field, self.program = field, program
         if matches is None:
-            self._rows = [('unlock', None, 'Unlock Keytap', 'to fill this from your vault', '')]
+            self._rows = [('unlock', None, 'Unlock Keytap', 'to fill this from the vault', '')]
         else:
             self._rows = [('login', login, login.name, login.username or 'no username', _TAGS.get(strength, ''))
                           for login, strength in matches[:MAX_LOGINS]]
             more = len(matches) - MAX_LOGINS
             detail = (f'and {more} more for {place}' if more > 0 else
-                      '' if matches else f'nothing saved for {place} yet')
+                      '' if matches else f'No logins saved for {place}')
             self._rows.append(('search', None, 'Search your vault…' if matches else 'Choose a login…',
                                detail, ''))
         self._hover = None
@@ -207,5 +207,5 @@ class InlineMenu(QWidget):
 
         p.setFont(theme.font(9))
         p.setPen(c.text if self._hover == 'mute' else c.dim)
-        p.drawText(self._mute_rect(), Qt.AlignVCenter, f"Don't pop up in {self.program}")
+        p.drawText(self._mute_rect(), Qt.AlignVCenter, f'Do not show in {self.program}')
         p.end()

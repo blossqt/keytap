@@ -109,6 +109,10 @@ class _Section(QFrame):
         self.form.addRow(label, widget)
         return widget
 
+    def labels(self) -> list:
+        return [self.form.itemAt(row, QFormLayout.LabelRole).widget() for row in range(self.form.rowCount())
+                if self.form.itemAt(row, QFormLayout.LabelRole) is not None]
+
     def add(self, widget) -> None:
         if isinstance(widget, QWidget):
             self.layout_.addWidget(widget)
@@ -222,6 +226,13 @@ class ItemEditor(QDialog):
         self._fields()
         self._notes_and_options()
         self.page.addStretch(1)
+        # One column for the fields in every section: each form sized its labels alone, so the
+        # fields began at a different place in each box.
+        labels = [label for part in page.findChildren(_Section) for label in part.labels() if label is not None]
+        if labels:
+            widest = max(label.sizeHint().width() for label in labels)
+            for label in labels:
+                label.setMinimumWidth(widest)
 
         foot = QHBoxLayout()
         foot.setContentsMargins(24, 12, 24, 24)
@@ -312,7 +323,7 @@ class ItemEditor(QDialog):
         self.password = Secret(_text(login.get('password')))
         self.password.add(_tool('dice', 'Generate a password (as the generator is set)', self._new_password))
         part.row('Password', self.password)
-        self.totp = Secret(_text(login.get('totp')), placeholder='The key a site shows to set up two-step login')
+        self.totp = Secret(_text(login.get('totp')), placeholder='Setup key')
         part.row('Authenticator key', self.totp)
         keys = [key for key in login.get('fido2Credentials') or [] if isinstance(key, dict)]
         self._passkeys = keys

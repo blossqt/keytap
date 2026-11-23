@@ -229,7 +229,7 @@ class SettingsDialog(QDialog):
         holder, self._startup = switch('Start Keytap when I sign in to Windows', '', win32.starts_with_windows())
         box.addWidget(holder)
         holder, self._tray = switch('Show Keytap in the tray',
-                                    'Turned off, open Keytap from Start or Hanami to get back here.',
+                                    'When off, Keytap opens from Start or from Hanami.',
                                     self.settings.tray_shown)
         box.addWidget(holder)
         layout.addWidget(box_frame)
@@ -254,10 +254,10 @@ class SettingsDialog(QDialog):
             box.addWidget(label('\n'.join(problems.values()), SMALL, role='error', wrap=True))
         layout.addWidget(box_frame)
 
-        box_frame, box = section('What gets typed')
+        box_frame, box = section('Auto-type sequence')
         rows = form()
         self._sequence = QLineEdit(self.settings.sequence)
-        rows.addRow(label('Type'), self._sequence)
+        rows.addRow(label('Sequence'), self._sequence)
         box.addLayout(rows)
         sequence_note = note(
             '{USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {DELAY 500} and more. A login can have its '
@@ -355,8 +355,8 @@ class SettingsDialog(QDialog):
         row.addWidget(self._idle)
         row.addStretch(1)
         box.addLayout(row)
-        box.addWidget(note('Locking forgets your logins until you unlock again, and has Bitwarden '
-                           'destroy the session key. Quitting Keytap locks it too.'))
+        box.addWidget(note('Locking clears the logins from memory until the next unlock and ends Bitwarden’s '
+                           'session. Quitting Keytap also locks it.'))
         layout.addWidget(box_frame)
 
         box_frame, box = section('Windows Hello')
