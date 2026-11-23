@@ -207,7 +207,7 @@ class SignInTests(_WindowsStandIns):
 class SavingTests(_WindowsStandIns):
     """Saving a new passkey: Windows asks Keytap for one, and it goes to the vault."""
 
-    def make(self, person, data=None, saves=True):
+    def make(self, person, data=None, saves=True, bw_unlocked=True):
         from test_passkeys import new_request_bytes
         person.saved = []
 
@@ -216,7 +216,7 @@ class SavingTests(_WindowsStandIns):
                 raise RuntimeError('Bitwarden is unreachable')
             person.saved.append((login_id, name, site, record['userName']))
             return login_id or 'made-1'
-        person.vault = SimpleNamespace(add_passkey=add_passkey)
+        person.vault = SimpleNamespace(add_passkey=add_passkey, unlocked=bw_unlocked)
         person.synced = 0
         person.sync = lambda quiet=False: setattr(person, 'synced', person.synced + 1)
         handler = signins.PasskeySignIns(person)
@@ -274,6 +274,25 @@ class SavingTests(_WindowsStandIns):
         self.assertIsNone(refusal)
         self.assertEqual(person.asked[0], ('unlock', 'to save a passkey for github.com'))
         self.assertEqual(self.hello, [])
+
+    def test_waits_for_bitwarden_after_windows_hello_unlocks(self):
+        # Unlocked with Windows Hello, Keytap has its copy of the logins at once and bw's session a few
+        # seconds later. A passkey saved in between hit "The vault is locked" (2026-11-23, claude.ai).
+        person = Person([], unlocked=False)
+        QTimer.singleShot(600, lambda: setattr(person.vault, 'unlocked', True))
+        answer, refusal = self.make(person, bw_unlocked=False)
+        self.assertIsNone(refusal)
+        self.assertEqual(person.saved, [('', 'GitHub', 'github.com', 'blossqt')])
+
+    def test_bitwarden_never_unlocks(self):
+        person = Person([], unlocked=False)
+        # bw said no: Keytap locks again (app._finish_unlock), and the passkey is not made.
+        QTimer.singleShot(600, lambda: setattr(person, 'logins', None))
+        answer, refusal = self.make(person, bw_unlocked=False)
+        self.assertEqual(refusal, provider.E_FAIL)
+        self.assertEqual(person.saved, [])
+        self.assertIn(('toast', 'The passkey was not saved: Bitwarden did not finish unlocking the vault. '
+                                'Try again.'), person.asked)
 
     def test_not_saved_not_given(self):
         person = Person([])
@@ -370,7 +389,7 @@ class RelayTests(unittest.TestCase):
         from test_passkeys import new_request_bytes
         saved = []
         self.person.vault = SimpleNamespace(add_passkey=lambda record, login_id='', name='', site='':
-                                            saved.append(site) or 'made-1')
+                                            saved.append(site) or 'made-1', unlocked=True)
         self.person.sync = lambda quiet=False: None
         self.op = SimpleNamespace(hwnd=0, transaction=uuid.uuid4(), data=new_request_bytes(rp='gitlab.com'),
                                   signature=b'signed')

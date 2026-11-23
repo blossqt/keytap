@@ -42,6 +42,7 @@ from .ui.accounts import AccountCard
 
 WAIT_SECONDS = 300          # as long as Windows' own passkey window waits
 STARTING_SECONDS = 30       # how long a request waits on a Keytap that is still reaching Bitwarden
+BITWARDEN_SECONDS = 90      # how long a new passkey waits for bw to finish unlocking (each bw call is ~2 s)
 PIPE_PREFIX = '\\\\.\\pipe\\'   # where Qt's QLocalServer listens on Windows
 NTE_EXISTS = 0x8009000F         # the website already has a passkey from the vault for this account
 
@@ -199,6 +200,10 @@ class PasskeySignIns(QObject):
                                                             f'Save a passkey for {job.site} in Keytap'):
                 raise job.refusal or Refusal(provider.NTE_USER_CANCELLED)
             login = job.login
+            if not self._bitwarden_ready():
+                self._to_ui.emit(None, 'toast', 'The passkey was not saved: Bitwarden did not finish unlocking the '
+                                                'vault. Try again.')
+                raise Refusal(provider.E_FAIL, 'bw has no session yet')
             try:
                 self.controller.vault.add_passkey(passkeys.record(passkey), login.id if login else '',
                                                   request.rp_name or request.rp_id, request.rp_id)
@@ -240,6 +245,19 @@ class PasskeySignIns(QObject):
         finally:
             self._job = None
             self._one_at_a_time.release()
+
+    def _bitwarden_ready(self) -> bool:
+        """COM's thread: whether bw holds a session to save with, waiting for one while Keytap
+        finishes unlocking. Unlocked with Windows Hello, Keytap shows the logins Windows Hello
+        keeps a copy of at once and has bw unlock behind them (app._finish_unlock), a few seconds
+        more: a passkey saved straight after found bw locked."""
+        vault = self.controller.vault
+        deadline = time.monotonic() + BITWARDEN_SECONDS
+        while not vault.unlocked:
+            if not self.controller.unlocked or time.monotonic() > deadline:
+                return False            # locked again (bw said no), or bw never answered
+            time.sleep(0.05)
+        return True
 
     def _windows_hello(self, job: _Job, who: str, hint: str) -> bool:
         try:
