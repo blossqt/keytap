@@ -348,7 +348,7 @@ class SendsWindow(_Window):
         self.views.setRange(0, 1_000_000)
         self.views.setSpecialValueText('No limit')
         form.addRow('Maximum views', self.views)
-        self.password = Secret(mono=False, placeholder='Optional, required to open the link')
+        self.password = Secret(mono=False, placeholder='Optional. Required to open the link.')
         form.addRow('Password', self.password)
         self.remove_password = _button('Remove password')
         self.remove_password.clicked.connect(self._remove_password)
@@ -464,7 +464,7 @@ class SendsWindow(_Window):
         self.views.setValue(int(send.get('maxAccessCount') or 0))
         self.password.set_text('')
         self.password.edit.setPlaceholderText('A new password' if send.get('passwordSet') else
-                                              'Optional: needed to open the link')
+                                              'Optional. Required to open the link.')
         self.remove_password.setVisible(bool(send.get('passwordSet')))
         self.hide_email.setChecked(bool(send.get('hideEmail')))
         self.notes.setPlainText(str(send.get('notes') or ''))
@@ -511,7 +511,7 @@ class SendsWindow(_Window):
     def _save(self) -> None:
         send = self._collect()
         if not send['name']:
-            self.message.setText('Give it a name.')
+            self.message.setText('A name is required.')
             return
         if send.get('type') == 1 and not send.get('id') and not self._file_path:
             self.message.setText('Choose the file to send.')
@@ -627,7 +627,7 @@ class HealthWindow(_Window):
 
     def check(self) -> None:
         self.go.setEnabled(False)
-        self.state.setText('Checking… (with Have I Been Pwned, about a second a login)' if self.exposed.isChecked()
+        self.state.setText('Checking…' if self.exposed.isChecked()
                            else 'Checking…')
         exposed = self.exposed.isChecked()
         self.controller.run_vault(lambda: self.controller.vault.health(exposed), None, self._checked)
@@ -777,7 +777,6 @@ class ImportDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
         layout.addWidget(_title('Import data', 13))
-        layout.addWidget(_dim('From another password manager, or a Bitwarden export, into your vault.'))
         form = QFormLayout()
         self.form_ = QComboBox()
         self.form_.addItem('Asking Bitwarden…', '')

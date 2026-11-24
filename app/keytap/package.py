@@ -50,9 +50,9 @@ def unavailable() -> str:
     """'' if this Keytap can set up passkeys, else why not."""
     from . import provider
     if not provider.supported():
-        return "This Windows can't take passkey providers yet: it needs Windows 11 24H2 or later, updated."
+        return 'Passkey providers require Windows 11 24H2 or later.'
     if folder() is None:
-        return 'Passkeys work in the installed Keytap.exe, not in Keytap run from source.'
+        return 'Passkeys require the installed Keytap.exe.'
     if not _file('Keytap.msix') or not _file('Keytap.cer'):
         return 'This copy of Keytap was built without its package.'
     return ''
@@ -116,7 +116,7 @@ def trust_certificate() -> bool:
     False if they said no."""
     cer = _file('Keytap.cer')
     if not cer:
-        raise SetupError('Keytap\'s certificate is missing from its folder - reinstall Keytap.')
+        raise SetupError('Keytap\'s certificate is missing. Reinstall Keytap.')
     command = (f"Import-Certificate -FilePath '{cer}' -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople "
                '| Out-Null')
     info = _ShellExecuteInfo()
@@ -166,7 +166,7 @@ def register() -> None:
     """Register Keytap's package for this folder, replacing one for another folder or an older one."""
     msix, here = _file('Keytap.msix'), folder()
     if not msix or not here:
-        raise SetupError('Keytap\'s package is missing from its folder - reinstall Keytap.')
+        raise SetupError('Keytap\'s package is missing. Reinstall Keytap.')
     current = registered()
     if current is not None:
         _powershell(f"Remove-AppxPackage -Package '{current['name']}'")
@@ -216,7 +216,7 @@ def update_and_restart(args: list[str]) -> None:
     sets it up again."""
     msix, here = _file('Keytap.msix'), folder()
     if not msix or not here:
-        raise SetupError("Keytap's package is missing from its folder - reinstall Keytap.")
+        raise SetupError("Keytap's package is missing. Reinstall Keytap.")
 
     def quoted(text) -> str:
         return "'" + str(text).replace("'", "''") + "'"

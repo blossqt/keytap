@@ -56,7 +56,7 @@ class SignInDialog(QDialog):
         logo = theme.Label()
         logo.setPixmap(icons.render_app_icon(48))
         top.addWidget(logo, 0, Qt.AlignTop)
-        top.addWidget(suitesettings.titled('Sign in to Bitwarden', 'Keytap types logins from your Bitwarden vault.'), 1)
+        top.addWidget(suitesettings.titled('Sign in to Bitwarden', ''), 1)
         layout.addLayout(top)
         layout.addSpacing(4)
 
@@ -94,7 +94,7 @@ class SignInDialog(QDialog):
         buttons = QDialogButtonBox()
         self.go = buttons.addButton('Sign in…', QDialogButtonBox.ActionRole)
         self.go.setDefault(True)
-        self.check = buttons.addButton("I've signed in", QDialogButtonBox.ActionRole)
+        self.check = buttons.addButton('Continue', QDialogButtonBox.ActionRole)
         self.check.hide()
         close = buttons.addButton(QDialogButtonBox.Cancel)
         self.go.clicked.connect(self._start)
@@ -284,8 +284,8 @@ class SettingsDialog(QDialog):
         layout = frame.add(*next(pages))
         box_frame, box = section('Pop-up in login boxes')
         holder, self._inline = switch('List my logins when I click into a login box',
-                                      'Not in browsers - the Bitwarden extension does that there. Games that draw '
-                                      'their own screens cannot show it; the hotkey still works in them.',
+                                      'Not shown in browsers or in games that draw their own screens. The '
+                                      'hotkey works in both.',
                                       self.settings.inline)
         box.addWidget(holder)
         # Named by its own title, so it needs no line saying what it lists; with nothing in it, it
@@ -321,7 +321,6 @@ class SettingsDialog(QDialog):
         forget.clicked.connect(lambda: [self._links.takeItem(self._links.row(i))
                                         for i in self._links.selectedItems()])
         whole_site = QPushButton('Any login for its website')
-        whole_site.setToolTip('Other accounts on the same website count too, not only the login you chose')
         whole_site.clicked.connect(self._links_to_sites)
         box.addWidget(self._links)
         row = QHBoxLayout()
@@ -355,8 +354,7 @@ class SettingsDialog(QDialog):
         row.addWidget(self._idle)
         row.addStretch(1)
         box.addLayout(row)
-        box.addWidget(note('Locking clears the logins from memory until the next unlock and ends Bitwarden’s '
-                           'session. Quitting Keytap also locks it.'))
+        box.addWidget(note('Quitting Keytap also locks it.'))
         layout.addWidget(box_frame)
 
         box_frame, box = section('Windows Hello')
@@ -369,11 +367,9 @@ class SettingsDialog(QDialog):
         box.addLayout(row)
         if not controller.hello_supported and not controller.hello_on():
             why = ('Windows Hello is not set up on this PC. Set up a PIN, fingerprint or face in Windows '
-                   'Settings → Accounts → Sign-in options, then come back here.')
+                   'Settings > Accounts > Sign-in options.')
         else:
-            why = ("Unlock with your fingerprint, face or PIN instead of your master password. As in "
-                   "Bitwarden's desktop app, Keytap keeps your master password sealed so that only Windows "
-                   'Hello, on your Windows account, can open it.')
+            why = 'Unlock with your fingerprint, face or PIN instead of your master password.'
         box.addWidget(note(why))
         self._show_hello()
         layout.addWidget(box_frame)
@@ -381,9 +377,8 @@ class SettingsDialog(QDialog):
 
         # ---------------------------------------------------------------- passkeys
         layout = frame.add(*next(pages), about=(
-            "When a website or app asks for a passkey, Windows' passkey window can offer Keytap. Keytap signs "
-            'in with the passkeys in your Bitwarden vault, and saves new ones to it, checking it is you with '
-            "Windows Hello. A new passkey goes with the site's login for that account, or in a new login."))
+            'Websites and apps can sign in with the passkeys in your Bitwarden vault and save new ones to it. '
+            "Choose Keytap in Windows' passkey window."))
         box_frame, box = section('')
         self._passkey_steps = label('Checking…')
         self._passkey_steps.setTextFormat(Qt.RichText)
@@ -401,9 +396,8 @@ class SettingsDialog(QDialog):
             row.addWidget(button)
         row.addStretch(1)
         box.addLayout(row)
-        box.addWidget(note('Setting up asks Windows, once, to trust Keytap\'s certificate (an administrator '
-                           'prompt): Windows takes passkey providers only from signed app packages, and '
-                           'Keytap\'s gives it that identity without moving any of its files.'))
+        box.addWidget(note('Setup requires administrator permission once, for Windows to trust Keytap\'s '
+                           'certificate.'))
         layout.addWidget(box_frame)
         layout.addStretch(1)
         background.run(controller.passkey_status, self._show_passkeys)
@@ -442,8 +436,8 @@ class SettingsDialog(QDialog):
             pass
 
     def _turn_off_passkeys(self) -> None:
-        answer = QMessageBox.question(self, 'Keytap', 'Stop Keytap being a passkey provider? Your passkeys stay in '
-                                      'your vault; Keytap restarts.')
+        answer = QMessageBox.question(self, 'Keytap', 'Turn off passkeys? Your passkeys stay in your vault. '
+                                      'Keytap restarts.')
         if answer == QMessageBox.Yes:
             self.reject()
             self.controller.turn_off_passkeys()
@@ -498,8 +492,7 @@ class SettingsDialog(QDialog):
             else:
                 stuck = True
         if stuck:
-            QMessageBox.information(self, 'Keytap', 'Unlock Keytap first, so it can see which website the login is '
-                                    'for.' if not self.controller.unlocked else
+            QMessageBox.information(self, 'Keytap', 'Unlock Keytap first.' if not self.controller.unlocked else
                                     'That login has no website saved in Bitwarden. Add the website to it there, '
                                     'or choose another login in the picker.')
 
@@ -556,33 +549,29 @@ class WelcomeDialog(QDialog):
         logo = theme.Label()
         logo.setPixmap(icons.render_app_icon(48))
         top.addWidget(logo, 0, Qt.AlignTop)
-        top.addWidget(suitesettings.titled('Keytap is running', 'It runs in the tray, by the clock.'), 1)
+        top.addWidget(suitesettings.titled('Keytap is running', 'It runs in the tray.'), 1)
         layout.addLayout(top)
         layout.addSpacing(16)
         type_key = hotkeys_now.get('type') or 'its hotkey'
         pick_key = hotkeys_now.get('pick') or 'the other hotkey'
         steps = [
-            '<b>1.</b> Click into the username box of any program - a game launcher, an app, '
-            'a remote desktop.',
-            f'<b>2.</b> Press <b>{type_key}</b>. Keytap types the login that goes with that '
-            'program, then presses Enter. If it is not sure which, it asks.',
+            '<b>1.</b> Click into the username box of any program.',
+            f'<b>2.</b> Press <b>{type_key}</b>. Keytap types the login for that program and '
+            'presses Enter, or asks which login to use.',
             f'<b>3.</b> In the list, tick <i>Always use</i> and it will not ask again for that '
             f'program. <b>{pick_key}</b> always lets you choose.',
-            '<b>Or click into a login box</b> - in most programs Keytap lists your logins '
-            'under it, as Bitwarden does in a browser.',
+            '<b>Or click into a login box.</b> Most programs show your logins under it.',
         ]
         text = theme.Label('<br><br>'.join(steps))
         text.setWordWrap(True)
         text.setTextFormat(Qt.RichText)
         layout.addWidget(text)
-        layout.addWidget(_note('Keytap reads your vault through Bitwarden\'s own command-line tool. '
-                               'Passwords are kept in memory only while it is unlocked.'))
         self.startup = QCheckBox('Start Keytap when I sign in to Windows')
         self.startup.setChecked(True)
         layout.addWidget(self.startup)
         buttons = QDialogButtonBox()
         if signed_in:
-            ok = buttons.addButton('Got it', QDialogButtonBox.AcceptRole)
+            ok = buttons.addButton('OK', QDialogButtonBox.AcceptRole)
         else:
             ok = buttons.addButton('Sign in to Bitwarden…', QDialogButtonBox.AcceptRole)
             later = buttons.addButton('Later', QDialogButtonBox.RejectRole)

@@ -48,7 +48,7 @@ def parse(text: str) -> tuple[int, int]:
     if text.strip().endswith('++'):
         parts = parts[:-2] + ['=']      # Qt writes Ctrl++ for the key that has + on it
     if not parts[-1]:
-        raise HotkeyError('a hotkey needs a key and at least one of Ctrl, Alt or Win')
+        raise HotkeyError('a hotkey requires a key and at least one of Ctrl, Alt or Win')
     modifiers = 0
     for part in parts[:-1]:
         bit = _MODIFIERS.get(part.lower())
@@ -58,9 +58,9 @@ def parse(text: str) -> tuple[int, int]:
     key = parts[-1]
     vk = _LOOKUP.get(key.lower())
     if vk is None:
-        raise HotkeyError(f'Keytap cannot use {key} in a hotkey')
+        raise HotkeyError(f'{key} cannot be used in a hotkey')
     if not modifiers & (MOD_CONTROL | MOD_ALT | MOD_WIN) and not 0x70 <= vk <= 0x87:
-        raise HotkeyError('a hotkey needs Ctrl, Alt or Win, or an F key, or it would get in the way of typing')
+        raise HotkeyError('a hotkey requires Ctrl, Alt or Win, or an F key')
     return modifiers, vk
 
 

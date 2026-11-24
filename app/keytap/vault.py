@@ -174,11 +174,11 @@ def _last_line(text: str) -> str:
 def _json_from(text: str, opener: str):
     start = text.find(opener)
     if start < 0:
-        raise VaultError('Bitwarden gave an answer Keytap could not read')
+        raise VaultError('Bitwarden returned an unreadable answer')
     try:
         return json.loads(text[start:])
     except json.JSONDecodeError as error:
-        raise VaultError('Bitwarden gave an answer Keytap could not read') from error
+        raise VaultError('Bitwarden returned an unreadable answer') from error
 
 
 def logins_of(items: list[dict]) -> list[Login]:
@@ -239,7 +239,7 @@ class Bitwarden:
         except subprocess.TimeoutExpired as error:
             raise VaultError('Bitwarden took too long to answer') from error
         except OSError as error:
-            raise VaultError(f"Bitwarden's command-line tool would not start: {error}") from error
+            raise VaultError(f"Bitwarden's command-line tool did not start: {error}") from error
         if result.returncode != 0:
             message = _last_line(result.stderr) or _last_line(result.stdout) or f'bw failed ({result.returncode})'
             if 'not logged in' in message.lower():

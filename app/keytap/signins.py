@@ -304,7 +304,7 @@ class PasskeySignIns(QObject):
             # Bitwarden stands, rather than turn the request away.
             QTimer.singleShot(200, lambda: self._start(job))
         elif c.status.state not in ('locked', 'unlocked'):
-            c.toasts.show('Passkeys', {'missing': "Bitwarden's command-line tool is missing - reinstall Keytap.",
+            c.toasts.show('Passkeys', {'missing': "Bitwarden's command-line tool is missing. Reinstall Keytap.",
                                        'checking': 'Keytap could not reach Bitwarden.'}.get(
                                            c.status.state, 'Sign Keytap in to Bitwarden first.'), error=True)
             job.refuse(provider.NTE_NOT_FOUND)

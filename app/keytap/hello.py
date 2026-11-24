@@ -133,7 +133,7 @@ def _bring_prompt_forward() -> None:
 
 
 def _check_cancelled():
-    raise HelloCancelled('Windows Hello was cancelled - type your master password instead.')
+    raise HelloCancelled('Windows Hello was cancelled. Type your master password.')
 
 
 def _check(status) -> None:
@@ -143,11 +143,11 @@ def _check(status) -> None:
     if status in (Status.USER_CANCELED, Status.USER_PREFERS_PASSWORD):
         _check_cancelled()
     if status == Status.NOT_FOUND:
-        raise HelloError("Keytap's Windows Hello key is gone. Type your master password, then turn Windows "
+        raise HelloError("Keytap's Windows Hello key is missing. Type your master password, then turn Windows "
                          'Hello on again in Settings.')
     if status == Status.SECURITY_DEVICE_LOCKED:
-        raise HelloError('Windows Hello is locked for now - type your master password instead.')
-    raise HelloError('Windows Hello could not check it is you - type your master password instead.')
+        raise HelloError('Windows Hello is locked. Type your master password.')
+    raise HelloError('Windows Hello did not verify your identity. Type your master password.')
 
 
 def _fake() -> str:
@@ -183,7 +183,7 @@ def unseal(sealed: bytes, signature: bytes) -> str:
     try:
         return _dpapi(sealed, hashlib.sha256(signature).digest(), protect=False).decode('utf-8')
     except (OSError, UnicodeDecodeError):
-        raise HelloError('Windows Hello could not open the password it keeps. Type your master password, then '
+        raise HelloError('Windows Hello could not unseal the master password. Type your master password, then '
                          'turn Windows Hello on again in Settings.') from None
 
 
@@ -220,7 +220,7 @@ def open_seal() -> Opened:
         kept = json.loads(store().read_text(encoding='utf-8'))
         challenge, sealed = base64.b64decode(kept['challenge']), base64.b64decode(kept['sealed'])
     except (OSError, ValueError, KeyError) as error:
-        raise HelloError('Windows Hello is not set up for Keytap - turn it on in Settings.') from error
+        raise HelloError('Windows Hello is not set up for Keytap. Turn it on in Settings.') from error
     signature = _sign(challenge, create=False)
     password = unseal(sealed, signature)
     try:

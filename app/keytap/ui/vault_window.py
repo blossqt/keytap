@@ -544,17 +544,17 @@ class Details(QScrollArea):
             return made
 
         if item.deleted:
-            button('Restore', 'restore', 'restore', primary=True, tip='Back out of the trash')
+            button('Restore', 'restore', 'restore', primary=True, tip='Restore from the trash')
             button('Delete forever', 'trash', 'delete_forever')
             row.addStretch(1)
             return row
         button('Edit', 'edit', 'edit', primary=True, tip='Ctrl+E')
         if item.archived:
-            button('Unarchive', 'restore', 'unarchive', tip='Back among your items')
+            button('Unarchive', 'restore', 'unarchive', tip='Move back to your items')
         else:
             star = button('Unfavourite' if item.favorite else 'Favourite',
                           'star' if item.favorite else 'star_line', 'favorite')
-            star.setToolTip('Take it out of your favourites' if item.favorite else 'Add it to your favourites')
+            star.setToolTip('Remove from favourites' if item.favorite else 'Add to favourites')
         more = QToolButton()
         more.setIcon(QIcon(icons.glyph('more', theme.colors().text, 18, 1.8)))
         more.setIconSize(QSize(18, 18))
@@ -1117,7 +1117,7 @@ class VaultWindow(QWidget):
         self.new_button.setProperty('role', 'primary')
         self.new_button.setIcon(QIcon(icons.glyph('plus', theme.ON_ACCENT, 16, 2)))
         self.new_button.setCursor(Qt.PointingHandCursor)
-        self.new_button.setToolTip('A new login (Ctrl+N), card, identity, note, SSH key or folder')
+        self.new_button.setToolTip('New item (Ctrl+N)')
         menu = QMenu(self.new_button)
         for kind in kinds.KINDS:
             menu.addAction(QIcon(icons.glyph(kinds.GLYPHS[kind], theme.colors().text, 16, 1.7)), kinds.NAMES[kind],
@@ -1127,7 +1127,7 @@ class VaultWindow(QWidget):
         self.new_button.setMenu(menu)
         row.addWidget(self.new_button)
 
-        self.tools_button = self._tool('more', 'Tools: generator, Send, vault health, export and import', None)
+        self.tools_button = self._tool('more', 'Tools', None)
         self.tools_button.setPopupMode(QToolButton.InstantPopup)
         tools = QMenu(self.tools_button)
         controller = self.controller
@@ -1251,14 +1251,14 @@ class VaultWindow(QWidget):
                 self.pages.setCurrentWidget(self.lock_page)
             self.lock_page.password.setFocus()
         elif state == 'unauthenticated':
-            self.notice.say('Sign in to Bitwarden', 'Keytap reaches your vault through Bitwarden\'s own '
+            self.notice.say('Sign in to Bitwarden', 'Requires Bitwarden\'s '
                             'command-line tool, signed in on this PC.', 'Sign in…', controller.show_sign_in)
             self.pages.setCurrentWidget(self.notice)
         elif state == 'missing':
-            self.notice.say("Bitwarden's tool is missing", 'Keytap comes with it - reinstall Keytap.')
+            self.notice.say("Bitwarden's tool is missing", 'Reinstall Keytap.')
             self.pages.setCurrentWidget(self.notice)
         else:
-            self.notice.say('Starting…', 'Asking Bitwarden how your vault is.')
+            self.notice.say('Starting…', 'Loading the vault.')
             self.pages.setCurrentWidget(self.notice)
 
     def _forget(self) -> None:
@@ -1438,7 +1438,7 @@ class VaultWindow(QWidget):
         """What the details' buttons ask for."""
         c = self.controller
         if item.partial:
-            self.problem('One moment', 'Bitwarden is still unlocking - try again in a few seconds.')
+            self.problem('Vault is unlocking', 'Bitwarden is still unlocking the vault. Try again in a few seconds.')
             return
         if name == 'edit':
             self._confirmed(item, lambda: self._edit(item.editable(), item.id))
@@ -1453,7 +1453,7 @@ class VaultWindow(QWidget):
         elif name == 'unarchive' or name == 'restore':
             c.restore_item(item, self._done('restore it'))
         elif name == 'delete':
-            if self._ask(f'Send “{item.name}” to the trash?', 'You can restore it from the trash.', 'Delete'):
+            if self._ask(f'Send “{item.name}” to the trash?', 'It can be restored from the trash.', 'Delete'):
                 c.delete_item(item, False, self._done('delete it'))
         elif name == 'delete_forever':
             if self._ask(f'Delete “{item.name}” forever?', 'It cannot be restored.', 'Delete forever'):
@@ -1469,7 +1469,7 @@ class VaultWindow(QWidget):
                     c.save_attachment(item, extra, path, self._done('save it'))
             self._confirmed(item, save)
         elif name == 'delete_attachment':
-            if self._ask(f'Delete “{extra.get("fileName")}”?', 'The attachment goes for good.', 'Delete'):
+            if self._ask(f'Delete “{extra.get("fileName")}”?', 'The attachment cannot be restored.', 'Delete'):
                 c.delete_attachment(item, extra, self._done('delete it'))
         elif name in ('move', 'collections'):
             dialog = CollectionsDialog(c, item, moving=name == 'move', parent=self)
@@ -1539,7 +1539,7 @@ class VaultWindow(QWidget):
             self.controller.save_folder(new.strip(), folder_id, self._done('rename the folder'))
 
     def _delete_folder(self, folder_id: str, name: str) -> None:
-        if self._ask(f'Delete the folder “{name}”?', 'What is in it stays in your vault, in no folder.', 'Delete'):
+        if self._ask(f'Delete the folder “{name}”?', 'Its items stay in your vault.', 'Delete'):
             self.controller.delete_folder(folder_id, self._done('delete the folder'))
 
     def item_menu_actions(self) -> list[tuple[str, object]]:

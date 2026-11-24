@@ -152,7 +152,7 @@ class Controller(QObject):
         else:
             self._update_tray()
             self.toasts.show("Bitwarden's command-line tool is missing",
-                             'Reinstall Keytap - it comes with it.', error=True)
+                             'Reinstall Keytap.', error=True)
         win32.refresh_start_with_windows()
         QTimer.singleShot(WARM_AFTER, self._warm_up)
         # Opened by hand: the vault. Started with Windows, or the very first time
@@ -336,7 +336,7 @@ class Controller(QObject):
             elif result.outcome == 'nothing':
                 self._keys(window, login, what, text, copy_code)
             elif result.outcome == 'failed':
-                self.toasts.show('Nothing typed', f'Keytap could not fill the {result.detail or "login"} box. Click '
+                self.toasts.show('Nothing typed', f'Could not fill the {result.detail or "login"} box. Click '
                                  f'into it and press {self.settings.hotkeys["type"]} again.', error=True,
                                  action=('Copy password', lambda: self.copy(login.password, 'password')))
             else:
@@ -381,7 +381,7 @@ class Controller(QObject):
         def given_back(ok: bool):
             if not ok:
                 self.typing = False
-                self.toasts.show('Nothing typed', 'Keytap could not put the keyboard back in that box. Click '
+                self.toasts.show('Nothing typed', 'The keyboard focus did not return to that box. Click '
                                  f'into it and press {self.settings.hotkeys["type"]} again.', error=True)
                 return
             background.run(lambda: typer.type_steps(steps, window.pid, compat=compat, key_delay_ms=delay), done)
@@ -392,7 +392,7 @@ class Controller(QObject):
         if error is not None:
             self.toasts.show('Typing failed', str(error), error=True)
         elif outcome == typer.FOCUS_LOST:
-            self.toasts.show('Typing stopped', 'Another window came to the front before Keytap finished.',
+            self.toasts.show('Typing stopped', 'Another window came to the front before typing finished.',
                              error=True)
         elif outcome == typer.KEYS_HELD:
             self.toasts.show('Nothing typed', 'Let go of Ctrl, Alt and Shift once the hotkey is pressed.',
@@ -515,7 +515,7 @@ class Controller(QObject):
         if self.card is not None:
             self.card.bring_back()
             return
-        card = UnlockCard('Turn on Windows Hello', 'Your master password, for Windows Hello to keep',
+        card = UnlockCard('Turn on Windows Hello', 'Master password',
                           button='Turn on')
 
         def submitted(password: str):
@@ -545,7 +545,7 @@ class Controller(QObject):
     def turn_off_hello(self) -> None:
         self._logins_key = None
         background.run(hello.turn_off, lambda _, error: self.toasts.show(
-            'Windows Hello is off', 'Keytap asks for your master password again.'))
+            'Windows Hello is off', 'Unlocking requires the master password.'))
 
     def _unlocked(self, found: list, check, logins_key: bytes | None = None, ready: bool = True) -> None:
         """Unlocked, with the vault's items from bw - or, not ready, with the logins Windows Hello keeps
@@ -622,8 +622,8 @@ class Controller(QObject):
         state = provider.state()
         if state == 'disabled' and not self.settings.passkeys_told:
             self.settings.passkeys_told = True
-            self.toasts.show('Turn Keytap on for passkeys', 'In Windows Settings: Accounts, Passkeys, Advanced '
-                             'options - then sites can use the passkeys in your vault, and save new ones to it.',
+            self.toasts.show('Turn Keytap on for passkeys', 'Turn it on in Windows Settings > Accounts > Passkeys > '
+                             'Advanced options.',
                              action=('Open', self.open_passkey_settings))
 
     @staticmethod
@@ -656,12 +656,12 @@ class Controller(QObject):
             if error is not None:
                 self.toasts.show('Passkeys are not set up', str(error), error=True)
             elif result == 'declined':
-                self.toasts.show('Passkeys are not set up', 'Windows needs to trust Keytap\'s certificate, '
-                                 'once - choose Yes when it asks.', error=True)
+                self.toasts.show('Passkeys are not set up', 'Windows must trust Keytap\'s certificate. '
+                                 'Choose Yes when Windows asks.', error=True)
             elif provider.identity():
                 self.open_passkey_settings()
             else:
-                self.toasts.show('Keytap starts again', 'Now as a passkey provider.')
+                self.toasts.show('Keytap is restarting', 'Passkeys are set up.')
                 QTimer.singleShot(1500, self.restart)
         self.toasts.show('Setting up passkeys', 'Windows asks once whether to trust Keytap\'s certificate.')
         background.run(work, done)
@@ -1143,7 +1143,7 @@ class Controller(QObject):
 
         def undo():
             self.settings.inline_muted = [p for p in self.settings.inline_muted if p != program]
-        self.toasts.show(f'Keytap will not pop up in {program}',
+        self.toasts.show(f'Pop-up turned off for {program}',
                          f'{self.settings.hotkeys["type"]} still types there.', action=('Undo', undo))
 
     # ------------------------------------------------------------------ clipboard
@@ -1248,7 +1248,7 @@ class Controller(QObject):
         key = self.settings.hotkeys.get('type') or ''
         words = {'missing': "Bitwarden's tool is missing", 'checking': 'Starting…',
                  'unauthenticated': 'Not signed in', 'locked': 'Locked',
-                 'unlocked': f'Unlocked - press {key} to type' if key else 'Unlocked'}
+                 'unlocked': f'Unlocked. Press {key} to type' if key else 'Unlocked'}
         items = [{'text': words.get(state, state.capitalize()), 'enabled': False}, {'separator': True},
                  {'id': 'open', 'text': 'Open Keytap', 'default': True}]
         if state == 'unauthenticated':

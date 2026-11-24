@@ -161,14 +161,14 @@ def register(logo_svg: str, info: bytes) -> None:
         response = POINTER(_AddResponse)()
         hr = dll.WebAuthNPluginAddAuthenticator(byref(options), byref(response))
         if hr:
-            raise OSError(hr & 0xffffffff, f'Windows would not add Keytap as a passkey provider ({hresult_text(hr)})')
+            raise OSError(hr & 0xffffffff, f'Windows did not add Keytap as a passkey provider ({hresult_text(hr)})')
         if response:
             dll.WebAuthNPluginFreeAddAuthenticatorResponse(response)
         return
     details = _UpdateDetails(NAME, ctypes.pointer(clsid), ctypes.pointer(clsid), logo, logo, len(info), blob, 0, None)
     hr = dll.WebAuthNPluginUpdateAuthenticatorDetails(byref(details))
     if hr:
-        raise OSError(hr & 0xffffffff, f'Windows would not update Keytap as a passkey provider ({hresult_text(hr)})')
+        raise OSError(hr & 0xffffffff, f'Windows did not update Keytap as a passkey provider ({hresult_text(hr)})')
 
 
 def unregister() -> None:
@@ -196,7 +196,7 @@ def sync_credentials(keys) -> None:
         slot.pwszUserDisplayName = key.user_display_name or key.user_name or key.rp_id
     hr = dll.WebAuthNPluginAuthenticatorAddCredentials(byref(clsid), len(keys), array)
     if hr:
-        raise OSError(hr & 0xffffffff, f'Windows would not take the list of passkeys ({hresult_text(hr)})')
+        raise OSError(hr & 0xffffffff, f'Windows did not take the list of passkeys ({hresult_text(hr)})')
 
 
 def cached_credentials() -> list[str]:
@@ -233,7 +233,7 @@ def verify_user(hwnd: int, transaction: uuid.UUID, user_name: str, hint: str) ->
     if hr == signed(NTE_USER_CANCELLED) or (hr & 0xffffffff) == NTE_USER_CANCELLED:
         return False
     if hr:
-        raise OSError(hr & 0xffffffff, f'Windows Hello could not check it is you ({hresult_text(hr)})')
+        raise OSError(hr & 0xffffffff, f'Windows Hello did not verify your identity ({hresult_text(hr)})')
     return True
 
 

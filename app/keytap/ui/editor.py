@@ -133,7 +133,7 @@ class _UriRow(QWidget):
         for value, label in items.MATCHES:
             self.match.addItem(label, value)
         self.match.setCurrentIndex(max(0, self.match.findData(match)))
-        self.match.setToolTip('Match detection: which addresses this login is offered on')
+        self.match.setToolTip('Match detection')
         row.addWidget(self.match)
         row.addWidget(_tool('close_x', 'Remove this website', lambda: remove(self)))
 
@@ -318,10 +318,10 @@ class ItemEditor(QDialog):
         row.setSpacing(2)
         self.username = QLineEdit(_text(login.get('username')))
         row.addWidget(self.username, 1)
-        row.addWidget(_tool('dice', 'Make up a username (as the generator is set)', self._new_username))
+        row.addWidget(_tool('dice', 'Generate a username', self._new_username))
         part.row('Username', user)
         self.password = Secret(_text(login.get('password')))
-        self.password.add(_tool('dice', 'Generate a password (as the generator is set)', self._new_password))
+        self.password.add(_tool('dice', 'Generate a password', self._new_password))
         part.row('Password', self.password)
         self.totp = Secret(_text(login.get('totp')), placeholder='Setup key')
         part.row('Authenticator key', self.totp)
@@ -449,7 +449,7 @@ class ItemEditor(QDialog):
         again = QPushButton('Make a new key')
         again.setIcon(QIcon(icons.glyph('refresh', theme.colors().text, 16, 1.7)))
         again.setCursor(Qt.PointingHandCursor)
-        again.setToolTip('An Ed25519 key, in place of this one. Paste one of your own above instead, if you like.')
+        again.setToolTip('Replaces this key with a new Ed25519 key.')
 
         def renew():
             made = sshkey.new_key()
@@ -562,13 +562,13 @@ class ItemEditor(QDialog):
     def _problem(self, item: dict) -> str:
         if not item['name']:
             self.name.setFocus()
-            return 'Give it a name.'
+            return 'A name is required.'
         if self.kind == SSH_KEY and not (item['sshKey'].get('privateKey') or '').strip():
-            return 'An SSH key item needs its private key.'
+            return 'A private key is required.'
         if item.get('organizationId') and not item.get('collectionIds'):
             return 'Choose at least one of the organization\'s collections.'
         if self.kind == CARD and item['card'].get('expYear') and not str(item['card']['expYear']).isdigit():
-            return 'The expiry year is a number, such as 2030.'
+            return 'The expiry year must be a number, such as 2030.'
         return ''
 
     def _save(self) -> None:
@@ -603,7 +603,7 @@ class ItemEditor(QDialog):
         if self._saving:
             return
         if self._collect() != self._original and self.isVisible():
-            answer = QMessageBox.question(self, 'Keytap', 'Throw away your changes?',
+            answer = QMessageBox.question(self, 'Keytap', 'Discard your changes?',
                                           QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Cancel)
             if answer != QMessageBox.Discard:
                 return

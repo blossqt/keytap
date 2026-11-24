@@ -211,8 +211,8 @@ def authenticator_data(passkey: Passkey, verified: bool) -> bytes:
 def answer(passkey: Passkey, request: Request, verified: bool) -> bytes:
     """The signed answer to send back: CTAP2's authenticatorGetAssertion response, as CBOR."""
     if passkey.counter > 0:
-        raise PasskeyError('This passkey counts its uses, and Keytap cannot save the count to your vault. '
-                           "Sign in with it from Bitwarden's browser extension or app instead.")
+        raise PasskeyError('This passkey has a signature counter, which Keytap cannot save to the vault. '
+                           "Sign in with Bitwarden's browser extension or app.")
     try:
         d = p256.private_key_from_pkcs8(passkey.key)
     except p256.KeyFormatError as error:

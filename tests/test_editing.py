@@ -247,7 +247,7 @@ class EditingTests(unittest.TestCase):
         self.window.new_item(items.IDENTITY, '')
         editor = self.editor()
         editor._save()
-        self.assertEqual(editor.message.text(), 'Give it a name.')
+        self.assertEqual(editor.message.text(), 'A name is required.')
         editor.name.setText('Work me')
         editor.identity['title'].setCurrentIndex(editor.identity['title'].findData('Dr'))
         editor.identity['passportNumber'].set_text('X999')
