@@ -830,7 +830,7 @@ class Controller(QObject):
 
     def save_attachment(self, item: Item, attachment: dict, path: str, done=None) -> None:
         def saved(_):
-            self.toasts.show('Saved', f'{attachment.get("fileName")} - decrypted, so anyone who opens it can read it.')
+            self.toasts.show('Saved', f'{attachment.get("fileName")} is saved decrypted, so anyone who opens it can read it.')
         self._vault_job(lambda: self.vault.save_attachment(item.id, str(attachment['id']), path), saved, done)
 
     def delete_attachment(self, item: Item, attachment: dict, done=None) -> None:
@@ -985,7 +985,7 @@ class Controller(QObject):
                 return
             if error is not None:
                 if not quiet:
-                    self.toasts.show('Could not sync', f'{error} - using the copy on this PC.', error=True)
+                    self.toasts.show('Could not sync', f'{str(error).rstrip(".")}. Using the copy on this PC.', error=True)
                 self._load_extras()            # from the copy on this PC, then
                 return
             self._take_items(found)
