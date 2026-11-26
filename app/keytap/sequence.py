@@ -58,7 +58,7 @@ def compile(sequence: str, login, totp_code: Callable[[], str] | None = None) ->
         elif token == '{}}':
             text('}')
         elif token == '{':
-            raise SequenceError('a { is not closed - type {{} for a brace')
+            raise SequenceError('a { is not closed (type {{} for a brace)')
         elif token.startswith('{'):
             _placeholder(token[1:-1].strip(), login, totp_code, steps, text)
         else:

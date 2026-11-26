@@ -742,7 +742,7 @@ class ExportDialog(QDialog):
     def _explain(self) -> None:
         key = EXPORTS[self.choice.checkedId()][0]
         self.warning.setText('Only your Bitwarden account can import it again.' if key == 'encrypted_json' else
-                             'The file is not encrypted: anyone who opens it can read every password in it. '
+                             'The file is not encrypted, so anyone who opens it can read every password in it. '
                              'Delete it once you are done with it.')
 
     def _export(self) -> None:

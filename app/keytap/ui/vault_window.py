@@ -970,7 +970,7 @@ class CollectionsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
-        words = (f'“{item.name}” goes to the organization: it is theirs from then on, and its members '
+        words = (f'“{item.name}” goes to the organization. It is theirs from then on, and its members '
                  'in those collections can see it.' if moving else f'The collections “{item.name}” is in.')
         note = _label(words, 9.25)
         note.setWordWrap(True)

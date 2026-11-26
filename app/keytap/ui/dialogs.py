@@ -260,8 +260,8 @@ class SettingsDialog(QDialog):
         rows.addRow(label('Sequence'), self._sequence)
         box.addLayout(rows)
         sequence_note = note(
-            '{USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {DELAY 500} and more. A login can have its '
-            'own: add a custom field named <i>autotype</i>. To tie a login to a program, give it the '
+            '{USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {DELAY 500} and more. To give a login its own '
+            'sequence, add a custom field named <i>autotype</i>. To tie a login to a program, give it the '
             'URI <i>app://program.exe</i>, or <i>title://text</i> for a window title.')
         sequence_note.setTextFormat(Qt.RichText)
         box.addWidget(sequence_note)
@@ -445,7 +445,7 @@ class SettingsDialog(QDialog):
     def _show_hello(self, on: bool | None = None) -> None:
         controller = self.controller
         on = controller.hello_on() if on is None else on
-        self._hello_state.setText('On - unlock with your fingerprint, face or PIN' if on else 'Off')
+        self._hello_state.setText('On' if on else 'Off')
         self._hello.setText('Turn off' if on else 'Turn on…')
         self._hello.setEnabled(on or (controller.hello_supported and controller.unlocked))
         self._hello.setToolTip('' if on or controller.unlocked else 'Unlock Keytap first')
