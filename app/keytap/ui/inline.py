@@ -166,7 +166,7 @@ class InlineMenu(QWidget):
         p.setFont(theme.font(9, QFont.DemiBold))
         p.setPen(c.dim)
         what = 'password' if self.field and self.field.kind == 'password' else 'login'
-        p.drawText(QRectF(card.left() + 34, card.top() + 4, card.width() - 70, 24), Qt.AlignVCenter,
+        theme.draw_line(p, QRectF(card.left() + 34, card.top() + 4, card.width() - 70, 24), Qt.AlignVCenter,
                    f'Keytap  ·  fill this {what}')
         p.drawPixmap(self._close_rect().adjusted(4, 4, -4, -4).toRect(),
                      icons.glyph('close_x', c.text if self._hover == 'close' else c.dim, 14, 2))
@@ -197,15 +197,15 @@ class InlineMenu(QWidget):
             width = int(max(20, right - left))
             p.setFont(theme.font(9.5, QFont.DemiBold))
             p.setPen(text)
-            p.drawText(QRectF(left, rect.top() + (4 if detail else 0), width, 18 if detail else ROW),
+            theme.draw_line(p, QRectF(left, rect.top() + (4 if detail else 0), width, 18 if detail else ROW),
                        Qt.AlignVCenter, QFontMetrics(p.font()).elidedText(title, Qt.ElideRight, width))
             if detail:
                 p.setFont(theme.font(9))
                 p.setPen(dim)
-                p.drawText(QRectF(left, rect.top() + 21, width, 16), Qt.AlignVCenter,
+                theme.draw_line(p, QRectF(left, rect.top() + 21, width, 16), Qt.AlignVCenter,
                            QFontMetrics(p.font()).elidedText(detail, Qt.ElideRight, width))
 
         p.setFont(theme.font(9))
         p.setPen(c.text if self._hover == 'mute' else c.dim)
-        p.drawText(self._mute_rect(), Qt.AlignVCenter, f'Do not show in {self.program}')
+        theme.draw_line(p, self._mute_rect(), Qt.AlignVCenter, f'Do not show in {self.program}')
         p.end()
