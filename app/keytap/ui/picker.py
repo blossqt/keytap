@@ -69,12 +69,12 @@ class _Delegate(QStyledItemDelegate):
         painter.setFont(theme.font(9.75, QFont.DemiBold))
         painter.setPen(text)
         name = QFontMetrics(painter.font()).elidedText(login.name, Qt.ElideRight, width)
-        painter.drawText(QRect(left, rect.top() + 5, width, 19), Qt.AlignVCenter, name)
+        theme.draw_line(painter, QRect(left, rect.top() + 5, width, 19), Qt.AlignVCenter, name)
         painter.setFont(theme.font(9))
         painter.setPen(dim)
         detail = login.username or ('no username' if login.password else 'no username or password')
         detail = QFontMetrics(painter.font()).elidedText(detail, Qt.ElideRight, width)
-        painter.drawText(QRect(left, rect.top() + 23, width, 17), Qt.AlignVCenter, detail)
+        theme.draw_line(painter, QRect(left, rect.top() + 23, width, 17), Qt.AlignVCenter, detail)
         painter.restore()
 
 

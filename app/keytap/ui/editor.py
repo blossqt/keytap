@@ -98,7 +98,7 @@ class _Section(QFrame):
         self.layout_.setContentsMargins(16, 16, 16, 16)
         self.layout_.setSpacing(8)
         self.form = QFormLayout()
-        self.form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.form.setLabelAlignment(Qt.AlignLeft)       # the row's height: its letters centred (theme.Label)
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.form.setHorizontalSpacing(16)
         self.form.setVerticalSpacing(8)

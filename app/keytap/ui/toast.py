@@ -103,7 +103,7 @@ class Toast(QWidget):
         p.setFont(theme.font(9.5, QFont.DemiBold))
         p.setPen(c.error if self.error else c.text)
         metrics = QFontMetrics(p.font())
-        p.drawText(QRectF(left, card.top() + 10, width, 22), Qt.AlignVCenter,
+        theme.draw_line(p, QRectF(left, card.top() + 10, width, 22), Qt.AlignVCenter,
                    metrics.elidedText(self.title, Qt.ElideRight, int(width)))
         p.setFont(theme.font(9))
         p.setPen(c.dim)

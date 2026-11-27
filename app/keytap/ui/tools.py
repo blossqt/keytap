@@ -154,7 +154,7 @@ class GeneratorWindow(_Window):
         form.setContentsMargins(0, 0, 0, 0)
         form.setHorizontalSpacing(16)
         form.setVerticalSpacing(8)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form.setLabelAlignment(Qt.AlignLeft)       # the row's height: its letters centred (theme.Label)
         return form
 
     def _password_page(self) -> QWidget:

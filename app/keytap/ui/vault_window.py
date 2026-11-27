@@ -337,14 +337,14 @@ class _ItemDelegate(QStyledItemDelegate):
         width = max(20, right - left)
         painter.setFont(theme.font(9.75, QFont.DemiBold))
         painter.setPen(text)
-        painter.drawText(QRect(left, rect.top() + 7, width, 19), Qt.AlignVCenter,
+        theme.draw_line(painter, QRect(left, rect.top() + 7, width, 19), Qt.AlignVCenter,
                          QFontMetrics(painter.font()).elidedText(item.name, Qt.ElideRight, width))
         painter.setFont(theme.font(9))
         painter.setPen(dim)
         detail = item.subtitle
         if not detail and item.type == LOGIN and item.login is not None and item.login.password:
             detail = 'no username'
-        painter.drawText(QRect(left, rect.top() + 26, width, 17), Qt.AlignVCenter,
+        theme.draw_line(painter, QRect(left, rect.top() + 26, width, 17), Qt.AlignVCenter,
                          QFontMetrics(painter.font()).elidedText(detail, Qt.ElideRight, width))
         painter.restore()
 
